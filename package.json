@@ -1,0 +1,36 @@
+{
+  "name": "code-walkthroughs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter=./packages/** build && pnpm -r --filter=./apps/** build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "concurrently -n server,web -c blue,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "pnpm --filter @cw/server dev",
+    "dev:web": "pnpm --filter @cw/web dev",
+    "db:migrate": "pnpm --filter @cw/server db:migrate",
+    "db:generate": "pnpm --filter @cw/server db:generate",
+    "db:studio": "pnpm --filter @cw/server db:studio",
+    "reset:codebases": "node ./scripts/reset-codebases.mjs",
+    "clean": "rimraf '**/dist' '**/.turbo' '**/node_modules/.vite' '**/node_modules/.cache'"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.1.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

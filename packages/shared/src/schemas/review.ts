@@ -1,0 +1,81 @@
+import { z } from 'zod';
+import { commentAnchorKinds, reviewStatuses } from '../types/review.ts';
+
+export const reviewStatusSchema = z.enum(reviewStatuses);
+
+export const statusScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('global') }),
+  z.object({ kind: z.literal('path'), pathId: z.string().min(1) }),
+]);
+
+export const setStatusInputSchema = z
+  .object({
+    nodeIdentity: z.string().min(1),
+    status: reviewStatusSchema,
+    comment: z.string().max(4000).optional(),
+    pathScope: z.string().min(1).optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.status === 'info_requested' && !input.comment) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['comment'],
+        message: 'comment is required for info_requested',
+      });
+    }
+  });
+
+export type SetStatusInput = z.infer<typeof setStatusInputSchema>;
+
+export const clearStatusInputSchema = z.object({
+  nodeIdentity: z.string().min(1),
+  pathScope: z.string().min(1).optional(),
+});
+
+export type ClearStatusInput = z.infer<typeof clearStatusInputSchema>;
+
+export const fileCascadeResolutionSchema = z.enum(['preserve', 'override']);
+
+export const setFileStatusInputSchema = z
+  .object({
+    filePath: z.string().min(1),
+    status: reviewStatusSchema,
+    comment: z.string().max(4000).optional(),
+    conflictResolution: fileCascadeResolutionSchema.optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.status === 'info_requested' && !input.comment) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['comment'],
+        message: 'comment is required for info_requested',
+      });
+    }
+  });
+
+export type SetFileStatusInput = z.infer<typeof setFileStatusInputSchema>;
+
+export const commentAnchorKindSchema = z.enum(commentAnchorKinds);
+
+export const commentAnchorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('file'), filePath: z.string().min(1) }),
+  z.object({
+    kind: z.literal('function'),
+    filePath: z.string().min(1),
+    functionIdentity: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('line'),
+    filePath: z.string().min(1),
+    functionIdentity: z.string().min(1),
+    lineStart: z.number().int().positive(),
+    lineEnd: z.number().int().positive(),
+  }),
+]);
+
+export const addCommentInputSchema = z.object({
+  anchor: commentAnchorSchema,
+  body: z.string().min(1).max(10000),
+});
+
+export type AddCommentInput = z.infer<typeof addCommentInputSchema>;

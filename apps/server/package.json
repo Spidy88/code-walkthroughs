@@ -1,0 +1,40 @@
+{
+  "name": "@cw/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "db:migrate": "drizzle-kit migrate --config ./drizzle/user.config.ts",
+    "db:generate": "drizzle-kit generate --config ./drizzle/user.config.ts",
+    "db:studio": "drizzle-kit studio --config ./drizzle/user.config.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.1",
+    "@cw/adapters": "workspace:*",
+    "@cw/analyzer": "workspace:*",
+    "@cw/shared": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "@hono/trpc-server": "^0.3.4",
+    "@trpc/server": "^11.0.0-rc.660",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.2",
+    "execa": "^9.5.2",
+    "hono": "^4.6.14",
+    "pino": "^9.5.0",
+    "pino-pretty": "^13.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "drizzle-kit": "^0.30.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
