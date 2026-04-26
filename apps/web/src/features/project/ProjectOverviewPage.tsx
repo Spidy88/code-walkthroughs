@@ -290,6 +290,14 @@ function FooterNav(props: { projectId: string }) {
       >
         PREP QUEUE →
       </Link>
+      <Link
+        to="/project/$projectId/files"
+        params={{ projectId: props.projectId }}
+        className="border border-primary bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-primary hover:bg-primary-soft"
+        data-testid="project-overview-files-link"
+      >
+        FILE BROWSER →
+      </Link>
       <span className="font-mono text-xs text-text-tertiary">project: {props.projectId}</span>
     </div>
   );

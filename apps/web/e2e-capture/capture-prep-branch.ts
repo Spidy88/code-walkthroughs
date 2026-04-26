@@ -113,7 +113,9 @@ async function main(): Promise<void> {
   const beforeNames = await sequenceNames(page);
   console.log(`  path before: ${beforeNames.join(' → ')}`);
 
-  await page.locator(`[data-testid="walkthrough-path-branch-candidate-${chosen.identity}"]`).click();
+  await page
+    .locator(`[data-testid="walkthrough-path-branch-candidate-${chosen.identity}"]`)
+    .click();
   // re-analyzing… banner shows briefly while analysis.run completes.
   await page.waitForTimeout(BEAT_LONG);
   await page.screenshot({ path: `${SHOTS_DIR}/branch-2-reanalyzing.png`, fullPage: true });

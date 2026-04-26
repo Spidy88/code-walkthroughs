@@ -14,7 +14,9 @@ import { Route as CodebaseRouteImport } from './routes/codebase'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DevStylesRouteImport } from './routes/dev/styles'
 import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$projectId/index'
+import { Route as ProjectProjectIdFilesIndexRouteImport } from './routes/project/$projectId/files/index'
 import { Route as ProjectProjectIdPathPathIdRouteImport } from './routes/project/$projectId/path.$pathId'
+import { Route as ProjectProjectIdFilesSplatRouteImport } from './routes/project/$projectId/files/$'
 
 const PrepRoute = PrepRouteImport.update({
   id: '/prep',
@@ -41,10 +43,22 @@ const ProjectProjectIdIndexRoute = ProjectProjectIdIndexRouteImport.update({
   path: '/project/$projectId/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectProjectIdFilesIndexRoute =
+  ProjectProjectIdFilesIndexRouteImport.update({
+    id: '/project/$projectId/files/',
+    path: '/project/$projectId/files/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ProjectProjectIdPathPathIdRoute =
   ProjectProjectIdPathPathIdRouteImport.update({
     id: '/project/$projectId/path/$pathId',
     path: '/project/$projectId/path/$pathId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ProjectProjectIdFilesSplatRoute =
+  ProjectProjectIdFilesSplatRouteImport.update({
+    id: '/project/$projectId/files/$',
+    path: '/project/$projectId/files/$',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -54,7 +68,9 @@ export interface FileRoutesByFullPath {
   '/prep': typeof PrepRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
+  '/project/$projectId/files/$': typeof ProjectProjectIdFilesSplatRoute
   '/project/$projectId/path/$pathId': typeof ProjectProjectIdPathPathIdRoute
+  '/project/$projectId/files/': typeof ProjectProjectIdFilesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,7 +78,9 @@ export interface FileRoutesByTo {
   '/prep': typeof PrepRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId': typeof ProjectProjectIdIndexRoute
+  '/project/$projectId/files/$': typeof ProjectProjectIdFilesSplatRoute
   '/project/$projectId/path/$pathId': typeof ProjectProjectIdPathPathIdRoute
+  '/project/$projectId/files': typeof ProjectProjectIdFilesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,7 +89,9 @@ export interface FileRoutesById {
   '/prep': typeof PrepRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
+  '/project/$projectId/files/$': typeof ProjectProjectIdFilesSplatRoute
   '/project/$projectId/path/$pathId': typeof ProjectProjectIdPathPathIdRoute
+  '/project/$projectId/files/': typeof ProjectProjectIdFilesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,7 +101,9 @@ export interface FileRouteTypes {
     | '/prep'
     | '/dev/styles'
     | '/project/$projectId/'
+    | '/project/$projectId/files/$'
     | '/project/$projectId/path/$pathId'
+    | '/project/$projectId/files/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -89,7 +111,9 @@ export interface FileRouteTypes {
     | '/prep'
     | '/dev/styles'
     | '/project/$projectId'
+    | '/project/$projectId/files/$'
     | '/project/$projectId/path/$pathId'
+    | '/project/$projectId/files'
   id:
     | '__root__'
     | '/'
@@ -97,7 +121,9 @@ export interface FileRouteTypes {
     | '/prep'
     | '/dev/styles'
     | '/project/$projectId/'
+    | '/project/$projectId/files/$'
     | '/project/$projectId/path/$pathId'
+    | '/project/$projectId/files/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -106,7 +132,9 @@ export interface RootRouteChildren {
   PrepRoute: typeof PrepRoute
   DevStylesRoute: typeof DevStylesRoute
   ProjectProjectIdIndexRoute: typeof ProjectProjectIdIndexRoute
+  ProjectProjectIdFilesSplatRoute: typeof ProjectProjectIdFilesSplatRoute
   ProjectProjectIdPathPathIdRoute: typeof ProjectProjectIdPathPathIdRoute
+  ProjectProjectIdFilesIndexRoute: typeof ProjectProjectIdFilesIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -146,11 +174,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectProjectIdIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/project/$projectId/files/': {
+      id: '/project/$projectId/files/'
+      path: '/project/$projectId/files'
+      fullPath: '/project/$projectId/files/'
+      preLoaderRoute: typeof ProjectProjectIdFilesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/project/$projectId/path/$pathId': {
       id: '/project/$projectId/path/$pathId'
       path: '/project/$projectId/path/$pathId'
       fullPath: '/project/$projectId/path/$pathId'
       preLoaderRoute: typeof ProjectProjectIdPathPathIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/project/$projectId/files/$': {
+      id: '/project/$projectId/files/$'
+      path: '/project/$projectId/files/$'
+      fullPath: '/project/$projectId/files/$'
+      preLoaderRoute: typeof ProjectProjectIdFilesSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -162,7 +204,9 @@ const rootRouteChildren: RootRouteChildren = {
   PrepRoute: PrepRoute,
   DevStylesRoute: DevStylesRoute,
   ProjectProjectIdIndexRoute: ProjectProjectIdIndexRoute,
+  ProjectProjectIdFilesSplatRoute: ProjectProjectIdFilesSplatRoute,
   ProjectProjectIdPathPathIdRoute: ProjectProjectIdPathPathIdRoute,
+  ProjectProjectIdFilesIndexRoute: ProjectProjectIdFilesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

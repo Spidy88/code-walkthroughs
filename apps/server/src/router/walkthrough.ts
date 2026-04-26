@@ -9,6 +9,7 @@ import {
   callEdges,
   classifications,
   entryPoints,
+  files,
   pathNodes,
   paths,
 } from '../db/schema/cache/index.ts';
@@ -148,6 +149,180 @@ export const walkthroughRouter = router({
         pathId: input.pathId ?? null,
         currentCodeHash: classification?.contentHash ?? null,
       });
+    }),
+
+  /**
+   * Returns one row per analyzed file with the file-level
+   * classification and a small roll-up of per-function review state
+   * (counts by runtime kind). Used by the file browser to render the
+   * tree with status indicators per file (spec §6.4).
+   */
+  getFileTree: scopedProcedure.query(async ({ ctx }) => {
+    const cache = ctx.codebase.dbs.cache;
+    const state = ctx.codebase.dbs.state;
+    const [fileRows, allNodes, allClassifications, reviews] = await Promise.all([
+      cache.select().from(files),
+      cache.select().from(analyzedNodes),
+      cache.select().from(classifications),
+      state.select().from(reviewStatus),
+    ]);
+    const classByIdentity = new Map(allClassifications.map((c) => [c.nodeIdentity, c]));
+    const reviewsByIdentity = new Map<string, typeof reviews>();
+    for (const r of reviews) {
+      const arr = reviewsByIdentity.get(r.nodeIdentity) ?? [];
+      arr.push(r);
+      reviewsByIdentity.set(r.nodeIdentity, arr);
+    }
+    const nodesByFile = new Map<string, typeof allNodes>();
+    for (const n of allNodes) {
+      const arr = nodesByFile.get(n.filePath) ?? [];
+      arr.push(n);
+      nodesByFile.set(n.filePath, arr);
+    }
+    return fileRows
+      .map((f) => {
+        const fileClass = classByIdentity.get(`file:${f.path}`) ?? null;
+        const functionNodes = nodesByFile.get(f.path) ?? [];
+        let approved = 0;
+        let rejected = 0;
+        let infoRequested = 0;
+        let stale = 0;
+        let neverReviewed = 0;
+        for (const node of functionNodes) {
+          const candidates = reviewsByIdentity.get(node.nodeIdentity) ?? [];
+          const cls = classByIdentity.get(node.nodeIdentity) ?? null;
+          const runtime = computeRuntimeState({
+            candidates,
+            pathId: null,
+            currentCodeHash: cls?.contentHash ?? null,
+          });
+          if (runtime.kind === 'reviewed_current') {
+            if (runtime.current.status === 'approved') approved += 1;
+            else if (runtime.current.status === 'rejected') rejected += 1;
+            else infoRequested += 1;
+          } else if (runtime.kind === 'reviewed_stale') {
+            stale += 1;
+          } else if (runtime.kind === 'info_requested') {
+            infoRequested += 1;
+          } else {
+            neverReviewed += 1;
+          }
+        }
+        return {
+          path: f.path,
+          language: f.language,
+          size: f.size,
+          classification: fileClass
+            ? {
+                classification: fileClass.classification,
+                confidence: fileClass.confidence,
+                source: fileClass.source,
+              }
+            : null,
+          functionCount: functionNodes.length,
+          counts: { approved, rejected, infoRequested, stale, neverReviewed },
+        };
+      })
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }),
+
+  /**
+   * Returns one analyzed file with full source on disk plus the list
+   * of analyzed nodes inside it (each with classification and runtime
+   * review state). The file view uses this to render code with
+   * per-function status chips next to each function header.
+   */
+  getFile: scopedProcedure
+    .input(z.object({ filePath: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const cache = ctx.codebase.dbs.cache;
+      const state = ctx.codebase.dbs.state;
+      const [[fileRow], allNodes, allClassifications] = await Promise.all([
+        cache.select().from(files).where(eq(files.path, input.filePath)),
+        cache.select().from(analyzedNodes).where(eq(analyzedNodes.filePath, input.filePath)),
+        cache.select().from(classifications).where(eq(classifications.filePath, input.filePath)),
+      ]);
+      if (!fileRow) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'file not found' });
+      }
+      // Pull review_status for the file pseudo-identity plus every
+      // analyzed function in the file in one round-trip. We need the
+      // node list before we can build the IN clause, so this can't
+      // sit in the Promise.all above.
+      const identities = [`file:${input.filePath}`, ...allNodes.map((n) => n.nodeIdentity)];
+      const allReviews = await state
+        .select()
+        .from(reviewStatus)
+        .where(inArray(reviewStatus.nodeIdentity, identities));
+
+      const classByIdentity = new Map(allClassifications.map((c) => [c.nodeIdentity, c]));
+      const reviewsByIdentity = new Map<string, typeof allReviews>();
+      for (const r of allReviews) {
+        const arr = reviewsByIdentity.get(r.nodeIdentity) ?? [];
+        arr.push(r);
+        reviewsByIdentity.set(r.nodeIdentity, arr);
+      }
+      const fileClass = classByIdentity.get(`file:${input.filePath}`) ?? null;
+      const fileRuntime = computeRuntimeState({
+        candidates: reviewsByIdentity.get(`file:${input.filePath}`) ?? [],
+        pathId: null,
+        currentCodeHash: fileClass?.contentHash ?? null,
+      });
+
+      const absPath = resolve(ctx.codebase.absolutePath, input.filePath);
+      let body = '';
+      try {
+        body = await readFile(absPath, 'utf8');
+      } catch (err) {
+        ctx.logger.warn({ err, path: absPath }, 'failed to read file body from disk');
+      }
+
+      const functions = allNodes
+        .map((n) => {
+          const cls = classByIdentity.get(n.nodeIdentity) ?? null;
+          const candidates = reviewsByIdentity.get(n.nodeIdentity) ?? [];
+          const runtime = computeRuntimeState({
+            candidates,
+            pathId: null,
+            currentCodeHash: cls?.contentHash ?? null,
+          });
+          return {
+            nodeIdentity: n.nodeIdentity,
+            name: n.name,
+            kind: n.kind,
+            startLine: n.startLine,
+            endLine: n.endLine,
+            exported: n.exported,
+            classification: cls
+              ? {
+                  classification: cls.classification,
+                  confidence: cls.confidence,
+                  justification: cls.justification,
+                }
+              : null,
+            runtimeState: runtime,
+          };
+        })
+        .sort((a, b) => a.startLine - b.startLine);
+
+      return {
+        file: {
+          path: fileRow.path,
+          language: fileRow.language,
+          size: fileRow.size,
+          classification: fileClass
+            ? {
+                classification: fileClass.classification,
+                confidence: fileClass.confidence,
+                justification: fileClass.justification,
+                source: fileClass.source,
+              }
+            : null,
+          runtimeState: fileRuntime,
+        },
+        body,
+        functions,
+      };
     }),
 
   /**
