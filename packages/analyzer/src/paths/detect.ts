@@ -33,6 +33,38 @@ export type PathDetectionOutput = {
 
 const DEFAULT_DEPTH = 8;
 
+/**
+ * Deterministic categoriser used when the LLM categoriser is off
+ * (the v1 default). Buckets paths by entry-point shape so the
+ * project overview groups e.g. all "GET route" paths together.
+ * Order picks the conventional REST verb sort with "other" at the
+ * end, so the path list reads top-to-bottom in the order a reviewer
+ * usually wants to walk it.
+ */
+const HTTP_METHOD_ORDER: Record<string, number> = {
+  GET: 0,
+  POST: 1,
+  PUT: 2,
+  PATCH: 3,
+  DELETE: 4,
+};
+
+function deterministicCategoryFor(entry: EntryPoint): {
+  category: string | null;
+  categoryOrder: number | null;
+} {
+  if (entry.kind === 'http_route') {
+    const method = String((entry.metadata as { method?: string }).method ?? '').toUpperCase();
+    if (method) {
+      return {
+        category: `${method} routes`,
+        categoryOrder: HTTP_METHOD_ORDER[method] ?? 99,
+      };
+    }
+  }
+  return { category: 'other', categoryOrder: 100 };
+}
+
 export function branchKey(entryNodeIdentity: NodeIdentity, callerIdentity: NodeIdentity): string {
   return hashCanonical({
     kind: 'path_branch',
@@ -149,14 +181,15 @@ export function detectPaths(input: PathDetectionInput): PathDetectionOutput {
       position += 1;
     }
 
+    const { category, categoryOrder } = deterministicCategoryFor(entry);
     paths.push({
       id: pathId,
       entryPointId: entry.id,
       projectId: input.projectId,
       nodeCount: ordered.length,
       maxDepth,
-      category: null,
-      categoryOrder: null,
+      category,
+      categoryOrder,
     });
 
     ordered.forEach((nodeIdentity, index) => {

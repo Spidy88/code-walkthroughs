@@ -26,6 +26,7 @@ type PathRow = {
   readonly nodeCount: number;
   readonly maxDepth: number;
   readonly category: string | null;
+  readonly categoryOrder: number | null;
   readonly nodes: ReadonlyArray<{ readonly nodeIdentity: string; readonly position: number }>;
 };
 
@@ -208,7 +209,10 @@ function KindGroup(props: {
   };
   projectId: string;
 }) {
-  const label = ENTRY_POINT_KIND_LABEL[props.group.kind] ?? props.group.kind.toUpperCase();
+  // The grouping function now sets `kind` to the category label
+  // directly (e.g. "GET routes") rather than the raw entry-point
+  // kind string. Fall back to the kind table for legacy callers.
+  const label = ENTRY_POINT_KIND_LABEL[props.group.kind] ?? props.group.kind;
   return (
     <Panel>
       <PanelHeader>
@@ -410,30 +414,42 @@ function groupByKind(
     pathsByEntry.set(p.entryPointId, arr);
   }
 
-  const groups = new Map<string, Array<{ entry: EntryPointRow; paths: PathRow[] }>>();
+  // Chunk 12: prefer the path's `category` (deterministic categoriser
+  // baked into detectPaths today, future LLM categoriser later) over
+  // the raw entry kind. Falls back to entry.kind when no path has a
+  // category — keeps prior behavior intact for fixtures pre-dating
+  // chunk 12.
+  const groups = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      order: number;
+      items: Array<{ entry: EntryPointRow; paths: PathRow[] }>;
+    }
+  >();
   for (const entry of entries) {
-    const arr = groups.get(entry.kind) ?? [];
-    arr.push({ entry, paths: pathsByEntry.get(entry.id) ?? [] });
-    groups.set(entry.kind, arr);
+    const entryPaths = pathsByEntry.get(entry.id) ?? [];
+    const firstCategorised = entryPaths.find((p) => p.category !== null);
+    const groupKey = firstCategorised?.category ?? `kind:${entry.kind}`;
+    const groupLabel = firstCategorised?.category
+      ? firstCategorised.category
+      : (ENTRY_POINT_KIND_LABEL[entry.kind] ?? entry.kind);
+    const groupOrder =
+      firstCategorised?.categoryOrder ?? 200 + (ENTRY_POINT_KIND_ORDER.indexOf(entry.kind) ?? 99);
+    const slot = groups.get(groupKey) ?? {
+      key: groupKey,
+      label: groupLabel,
+      order: groupOrder,
+      items: [],
+    };
+    slot.items.push({ entry, paths: entryPaths });
+    groups.set(groupKey, slot);
   }
 
-  // Sort: known kinds first per ENTRY_POINT_KIND_ORDER, then anything else
-  // alphabetical. Within a kind, entries are sorted by display string.
-  const sorted: Array<{
-    kind: string;
-    entries: Array<{ entry: EntryPointRow; paths: PathRow[] }>;
-  }> = [];
-  for (const kind of ENTRY_POINT_KIND_ORDER) {
-    const group = groups.get(kind);
-    if (group) {
-      sorted.push({ kind, entries: sortEntries(group) });
-      groups.delete(kind);
-    }
-  }
-  for (const [kind, group] of [...groups.entries()].sort()) {
-    sorted.push({ kind, entries: sortEntries(group) });
-  }
-  return sorted;
+  return [...groups.values()]
+    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
+    .map((g) => ({ kind: g.label, entries: sortEntries(g.items) }));
 }
 
 function sortEntries(
