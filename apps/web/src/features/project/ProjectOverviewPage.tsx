@@ -110,6 +110,7 @@ export function ProjectOverviewPage() {
         <SummarySection entryCount={entryPointRows.length} pathCount={pathRows.length} />
         <EntriesSection
           grouped={grouped}
+          projectId={projectId}
           isLoading={entries.isLoading || pathsQuery.isLoading}
           error={entries.error ?? pathsQuery.error}
         />
@@ -154,6 +155,7 @@ function EntriesSection(props: {
       readonly paths: ReadonlyArray<PathRow>;
     }>;
   }>;
+  projectId: string;
   isLoading: boolean;
   error: unknown;
 }) {
@@ -188,7 +190,7 @@ function EntriesSection(props: {
       ) : (
         <div className="space-y-4">
           {props.grouped.map((group) => (
-            <KindGroup key={group.kind} group={group} />
+            <KindGroup key={group.kind} group={group} projectId={props.projectId} />
           ))}
         </div>
       )}
@@ -204,6 +206,7 @@ function KindGroup(props: {
       readonly paths: ReadonlyArray<PathRow>;
     }>;
   };
+  projectId: string;
 }) {
   const label = ENTRY_POINT_KIND_LABEL[props.group.kind] ?? props.group.kind.toUpperCase();
   return (
@@ -218,14 +221,18 @@ function KindGroup(props: {
         data-testid={`project-overview-kind-${props.group.kind}`}
       >
         {props.group.entries.map(({ entry, paths }) => (
-          <EntryRow key={entry.id} entry={entry} paths={paths} />
+          <EntryRow key={entry.id} entry={entry} paths={paths} projectId={props.projectId} />
         ))}
       </ul>
     </Panel>
   );
 }
 
-function EntryRow(props: { entry: EntryPointRow; paths: ReadonlyArray<PathRow> }) {
+function EntryRow(props: {
+  entry: EntryPointRow;
+  paths: ReadonlyArray<PathRow>;
+  projectId: string;
+}) {
   const meta = props.entry.metadata as Record<string, unknown> | null;
   const route = typeof meta?.route === 'string' ? meta.route : null;
   const method = typeof meta?.method === 'string' ? meta.method : null;
@@ -249,7 +256,7 @@ function EntryRow(props: { entry: EntryPointRow; paths: ReadonlyArray<PathRow> }
               <li key={p.id} className="font-mono text-xs">
                 <Link
                   to="/project/$projectId/path/$pathId"
-                  params={{ projectId: props.entry.id.split(':')[0] ?? '', pathId: p.id }}
+                  params={{ projectId: props.projectId, pathId: p.id }}
                   className="text-primary hover:underline"
                   data-testid="project-overview-path-link"
                 >

@@ -15,6 +15,12 @@ function createCacheDb(): ReturnType<typeof drizzle<typeof cacheSchema>> {
       path TEXT PRIMARY KEY, project_id TEXT NOT NULL, content_hash TEXT NOT NULL,
       language TEXT NOT NULL, size INTEGER NOT NULL, analyzed_at TEXT NOT NULL
     );
+    CREATE TABLE analyzed_nodes (
+      node_identity TEXT PRIMARY KEY, project_id TEXT NOT NULL, file_path TEXT NOT NULL,
+      kind TEXT NOT NULL, name TEXT NOT NULL, start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL, exported INTEGER NOT NULL, content_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE classifications (
       node_identity TEXT PRIMARY KEY, file_path TEXT NOT NULL, classification TEXT NOT NULL,
       confidence TEXT NOT NULL, source TEXT NOT NULL, content_hash TEXT NOT NULL,

@@ -8,10 +8,13 @@ test.describe('Project overview', () => {
     await expect(noActive.or(failed)).toBeVisible();
   });
 
-  test('renders the placeholder for the path detail route', async ({ page }) => {
+  test('the path detail route renders the walkthrough surface (no-codebase fallback)', async ({
+    page,
+  }) => {
     await page.goto('/project/some-hash/path/some-path');
-    await expect(page.getByText('Walkthrough Canvas')).toBeVisible();
-    await expect(page.getByText('§ A · NOT YET IMPLEMENTED')).toBeVisible();
+    const noActive = page.getByText('No active codebase');
+    const failed = page.getByText('Failed to reach server');
+    await expect(noActive.or(failed)).toBeVisible();
   });
 
   test('captures screenshot of the project route no-codebase state', async ({ page }) => {

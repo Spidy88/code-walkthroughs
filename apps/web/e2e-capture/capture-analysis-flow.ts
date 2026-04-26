@@ -124,6 +124,36 @@ async function main(): Promise<void> {
     fullPage: true,
   });
 
+  // Click first available path to enter the walkthrough
+  const firstPath = page.getByTestId('project-overview-path-link').first();
+  if (await firstPath.isVisible().catch(() => false)) {
+    console.log('→ Entering walkthrough via first path link');
+    await firstPath.click();
+    await page.waitForURL(/\/path\//);
+    await page.waitForSelector('[data-testid="walkthrough-canvas"]');
+    await page.evaluate(() => document.fonts.ready);
+    // Let xyflow settle its fitView animation
+    await page.waitForTimeout(600);
+
+    console.log('→ Capturing walkthrough (focus = entry point)');
+    await page.screenshot({
+      path: `${OUT_DIR}/analysis-flow-5-walkthrough-1.png`,
+      fullPage: true,
+    });
+
+    // Advance focus by pressing j twice and screenshot mid-path
+    await page.keyboard.press('j');
+    await page.keyboard.press('j');
+    await page.waitForTimeout(400);
+    console.log('→ Capturing walkthrough (focus advanced 2 steps)');
+    await page.screenshot({
+      path: `${OUT_DIR}/analysis-flow-5-walkthrough-2.png`,
+      fullPage: true,
+    });
+  } else {
+    console.log('  (no path link found — skipping walkthrough capture)');
+  }
+
   await browser.close();
   console.log(`✓ Screenshots saved to ${OUT_DIR}`);
 }

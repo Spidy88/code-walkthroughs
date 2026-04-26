@@ -1,3 +1,4 @@
+export * from './analyzed-nodes.ts';
 export * from './files.ts';
 export * from './classifications.ts';
 export * from './paths.ts';

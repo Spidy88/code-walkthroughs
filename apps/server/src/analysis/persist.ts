@@ -1,6 +1,7 @@
 import type { AnalysisOutput } from '@cw/analyzer';
 import type { CacheDb } from '../db/codebase.ts';
 import {
+  analyzedNodes,
   classifications,
   entryPoints,
   files,
@@ -21,6 +22,7 @@ export async function persistAnalysis(
   const analyzedAt = timestamp;
 
   await db.delete(files);
+  await db.delete(analyzedNodes);
   await db.delete(classifications);
   await db.delete(entryPoints);
   await db.delete(pathNodes);
@@ -41,6 +43,26 @@ export async function persistAnalysis(
         language: languageByPath.get(f.filePath) ?? 'unknown',
         size: f.size,
         analyzedAt,
+      })),
+    );
+  }
+
+  // Persist analyzed nodes (used by walkthrough.getNode + walkthrough.getPath
+  // to render code snippets without re-parsing).
+  const allNodes = output.parsedFiles.flatMap((p) => p.nodes);
+  if (allNodes.length > 0) {
+    await db.insert(analyzedNodes).values(
+      allNodes.map((n) => ({
+        nodeIdentity: n.identity,
+        projectId: n.projectId,
+        filePath: n.filePath,
+        kind: n.kind,
+        name: n.name,
+        startLine: n.startLine,
+        endLine: n.endLine,
+        exported: n.exported,
+        contentHash: n.contentHash,
+        updatedAt: timestamp,
       })),
     );
   }

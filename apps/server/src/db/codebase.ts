@@ -132,6 +132,21 @@ function runCacheMigrations(sqlite: Database.Database): void {
       analyzed_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS analyzed_nodes (
+      node_identity TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      exported INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_analyzed_nodes_project ON analyzed_nodes(project_id);
+    CREATE INDEX IF NOT EXISTS idx_analyzed_nodes_file ON analyzed_nodes(file_path);
+
     CREATE TABLE IF NOT EXISTS classifications (
       node_identity TEXT PRIMARY KEY,
       file_path TEXT NOT NULL,
