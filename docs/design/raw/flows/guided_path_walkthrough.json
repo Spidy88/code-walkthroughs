@@ -1,0 +1,56 @@
+{
+  "flow_name": "Guided Path Walkthrough",
+  "description": "The core review loop: the reviewer selects a path from an entry point and walks it node by node, taking status actions and leaving comments, until the path's terminus.",
+  "trigger": "Reviewer picks a path from the project overview or a path list",
+  "persona": "The PR Reviewer",
+  "steps": [
+    {
+      "step": 1,
+      "screen": "path_list",
+      "user_action": "Scans the suggested path ordering — categorized (e.g., auth, user management, billing) with simplest-first ordering within each category — and selects a path",
+      "system_response": "Opens the walkthrough at the path's entry point, loading the node's classification, checklist, and the first view of its code foregrounded with syntax highlighting.",
+      "next_screen": "walkthrough_node",
+      "notes": "In PR review mode, default ordering switches to 'paths touching changed code first.' With LLM features disabled, paths are presented without categorization, ordered deterministically."
+    },
+    {
+      "step": 2,
+      "screen": "walkthrough_node",
+      "user_action": "Reads the foregrounded node — typically the function body, with an expand affordance for full file context. Reads the classification, scans the checklist, optionally expands the 'context above' panel to see the preamble chain (router, app mount, global middleware).",
+      "system_response": "Shows syntax-highlighted code, classification badge, rule evaluations with pass/fail/skip state and origin (built-in / user / project), dig-into affordances on downstream calls, prev/next/branch navigation, and the four-state status indicator (never reviewed / reviewed-current / reviewed-stale / pending info).",
+      "next_screen": "walkthrough_node",
+      "notes": "Only code on the current path is foregrounded — unrelated functions in the same file are accessible via the file browser. Preamble is collapsed by default because starting at the entry point (not the router) removes a friction click the reviewer rarely wants."
+    },
+    {
+      "step": 3,
+      "screen": "walkthrough_node",
+      "user_action": "Optionally leaves free-form comments (line-range, node-level, or file-level). Optionally digs into a downstream call to verify behavior (enters the dig-into sub-flow and returns).",
+      "system_response": "Comments persist independent of status and accumulate. Dig-into navigation maintains a stack; the main path remains the primary progression.",
+      "next_screen": "walkthrough_node",
+      "notes": "Free-form comments do not change status. Multiple comments can exist on the same node or file."
+    },
+    {
+      "step": 4,
+      "screen": "walkthrough_node",
+      "user_action": "Takes a status action: Approve / Reject / Request Info. Optionally attaches a single accompanying comment as justification (required for Request Info). Optionally opts into path-scoped approval instead of the default global scope.",
+      "system_response": "Sets the node's current status, preserves prior status in history, updates progress counters and coverage displays. For path-scoped approvals, marks subsequent appearances of this function in other paths as 'previously approved in path X — not yet reviewed for this path's usage.'",
+      "next_screen": "walkthrough_node",
+      "notes": "Status replaces previous; history is retained. Approvals are global by default — path-scoping is an explicit opt-in at the moment of the action."
+    },
+    {
+      "step": 5,
+      "screen": "walkthrough_node",
+      "user_action": "Clicks next to move to the next node along the path, or selects a branch at a fork, or pops out to the path list",
+      "system_response": "Advances along the call graph. At the path's terminus (external call, database write, returned response), prompts the reviewer to mark the path complete or return to the path list.",
+      "next_screen": "walkthrough_node_or_path_list",
+      "notes": "Branch selector appears when the path forks. Reviewer can reorder categories, reorder paths within a category, or pick any path directly at any time."
+    }
+  ],
+  "success_state": "The path is walked end-to-end with every node carrying a status action, comments captured where useful, and progress displays reflecting the new coverage",
+  "error_states": [
+    "Downstream call cannot be resolved deterministically and LLM inference is low-confidence → surface as a prep question from within the walkthrough; the reviewer's answer is written back so future walkthroughs reuse it",
+    "Reviewer tries to advance without a status action → allow it; status is optional per node, but a path isn't 'complete' until terminus",
+    "Node's classification is unclassified → show a generic checklist and offer an inline 'classify this' affordance that routes into the prep pass flow",
+    "Reviewer hits a node they already reviewed (reached via a different entry point) → show prior status with Skip (default) / Re-examine; Skip continues along the path, Re-examine opens the node for review",
+    "A rule evaluation fails (e.g., shell command rule exits non-zero or an LLM rule times out) → mark the rule as errored, show the error message, do not block review"
+  ]
+}

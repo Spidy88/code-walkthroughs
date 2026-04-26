@@ -207,6 +207,148 @@ describe('classify.stage2 — LLM disabled', () => {
 - **UI pixel precision**. We assert behavior; visual regression is separate.
 - **Real-world LLM output quality**. We test the plumbing (request built correctly, response parsed, cache works, degradation works). Prompt quality is evaluated by eyeballing results during development, not asserted in CI.
 
+## Test readability conventions
+
+Tests are read more often than they're written, especially when a future contributor (human or AI) is figuring out how a feature behaves. The conventions below prioritize the reader.
+
+### Naming
+
+- **Test names are sentences that describe behavior.** `'returns disabled when LLM is off and cache misses'`, not `'test1'` or `'classifyStage2 disabled case'`.
+- **`describe` blocks name the unit under test plus the context.** `describe('classifyStage2 — LLM disabled', ...)`. The reader should be able to pick out the scenario from the describe + test concatenation alone.
+- **No "should" prefix.** Just describe the behavior: `'falls back to stage 1'`, not `'should fall back to stage 1'`.
+
+### Structure: Arrange / Act / Assert
+
+Every test has three blocks, separated by a blank line. Comment markers are encouraged for non-trivial tests:
+
+```ts
+test('approves a node and writes through to the DB', async () => {
+  // Arrange
+  const ctx = createTestContext();
+  const caller = createCaller(ctx);
+  const node = await seedNode(ctx, { identity: 'proj:src/foo.ts:handle' });
+
+  // Act
+  const result = await caller.review.setStatus({
+    nodeIdentity: node.identity,
+    status: 'approved',
+  });
+
+  // Assert
+  expect(result.status).toBe('approved');
+  const stored = await ctx.codebase.stateDb
+    .select()
+    .from(reviewStatus)
+    .where(eq(reviewStatus.nodeIdentity, node.identity))
+    .get();
+  expect(stored?.status).toBe('approved');
+});
+```
+
+The blocks must remain visually separable even without the comments. If Arrange grows past ~10 lines, extract a builder into `test/helpers/`.
+
+### One behavior per test
+
+- **One assertion *focus* per test, not one `expect()`.** A test can have multiple `expect` calls if they all describe the same behavior ("after approve, status is `approved` AND code_hash is captured AND history has one entry"). It cannot use multiple `expect` calls to test multiple unrelated behaviors.
+- **If a test name needs an "and," split it.**
+
+### Locators (Playwright + component tests)
+
+- **Locate by role first, by text second, by `data-testid` only when neither works.** `page.getByRole('button', { name: 'Approve' })` is preferred over `page.locator('.approve-btn')`.
+- **Never locate by class name or DOM structure.** Both change under refactors; tests then break for the wrong reason.
+- **`data-testid` is allowed when the role/text approach is genuinely ambiguous** (e.g., two buttons with the same name in different panels). Prefix the testid with the feature: `data-testid="walkthrough-approve"`.
+- **Reuse locator helpers per page.** Instead of `page.getByRole('button', { name: 'Dig in' })` scattered across tests, define `walkthroughPage.digInButton(callName)` once.
+
+### Fixture builders, not inline setup
+
+- **Builders go in `test/helpers/`** and return a fully-typed object. They take an optional partial override.
+- **Builders compose.** `seedReviewedPath(ctx, { nodes: 5, approved: 3 })` is a one-line setup that uses lower-level builders for files, nodes, and review rows.
+- **No "magic numbers" in fixture builders.** If the test cares about "5 nodes," the literal `5` belongs in the test. If the builder needs a default, name it (`DEFAULT_PATH_LENGTH = 5`).
+
+### Assertions on data, not on logs
+
+- **Don't assert that something was logged** unless the log is part of the contract (e.g., the LLM activity stream that drives the UI's "recent activity" panel).
+- **Don't assert on console output** ever. Errors should throw.
+
+### Comments inside tests
+
+- **Comment the *why*, not the *what*.** `// timestamp must be deterministic for the snapshot` is useful. `// call the function` is noise.
+- **A comment that explains a non-obvious setup belongs in the Arrange block.**
+
+### What a good test reads like, end to end
+
+```ts
+describe('comparison.listRisks', () => {
+  test('returns one ContractChange per signature diff with affected callers nested', async () => {
+    // Arrange — a base/head pair where validateRequest loses its strict default,
+    // and 2 of 4 callers don't pass the argument explicitly
+    const comparison = await seedComparison({
+      base: { 'src/lib/validate.ts': 'export function validateRequest(req, strict = true) {}' },
+      head: { 'src/lib/validate.ts': 'export function validateRequest(req, strict) {}' },
+      callers: [
+        { file: 'src/routes/a.ts', call: 'validateRequest(req)' },
+        { file: 'src/routes/b.ts', call: 'validateRequest(req, false)' },
+        { file: 'src/routes/c.ts', call: 'validateRequest(req)' },
+        { file: 'src/routes/d.ts', call: 'validateRequest(req, true)' },
+      ],
+    });
+
+    // Act
+    const risks = await createCaller(comparison.ctx).comparison.listRisks();
+
+    // Assert
+    expect(risks).toHaveLength(1);
+    expect(risks[0].kind).toBe('param_default_removed');
+    expect(risks[0].affectedCallers).toHaveLength(4);
+    const missing = risks[0].affectedCallers.filter((c) => !c.callPassesArgument);
+    expect(missing).toHaveLength(2);
+  });
+});
+```
+
+A reader who has never seen this code can predict what the production behavior is from the test alone. That's the bar.
+
+## AI implementation guards
+
+These are rules the AI implementing this codebase must follow when claiming a chunk of work is done. They exist because "I think it's working" is not the same as "I verified it works."
+
+### After every chunk
+
+Before declaring a chunk complete, run **all** of:
+
+1. `pnpm typecheck` — must pass on every package.
+2. `pnpm lint` — must pass clean. No `// biome-ignore` added in this chunk without a one-line justification comment.
+3. `pnpm test -- <pattern>` for the test files relevant to the chunk. Must pass.
+4. `pnpm test` (full workspace) when the chunk is anything DB-, schema-, or shared-types-related. Cross-package tests are easy to break with a one-character rename.
+5. **For UI chunks**: `pnpm dev`, navigate to the affected screen, exercise the golden path **and** at least one edge case (empty, error, LLM-disabled). State explicitly which paths were tested and what was observed.
+6. **For UI chunks**: relevant Playwright test must run green. `pnpm test:e2e -- <pattern>`. If no Playwright test covers the new behavior, write one in the same chunk.
+
+### Honesty about UI verification
+
+The AI cannot directly observe a browser. When a chunk touches UI:
+
+- **Don't claim "the page renders correctly"** — that's an unverifiable assertion. State what was tested: "Playwright test `walkthrough.spec.ts > approves a node` passes," and "manual screenshot via `playwright --debug` shows the approve button rendering with the Approve color token."
+- **If the user is observing the work**, ask them to confirm visual correctness rather than claiming it. The AI verifies *behavior*; the human verifies *appearance*.
+- **Trace and video on by default during implementation.** `apps/web/playwright.config.ts` should set `trace: 'on'` and `video: 'retain-on-failure'` so any failure can be replayed. The AI should mention "the trace at `<path>` shows the failing step" rather than guessing.
+
+### When a check fails
+
+- **Investigate the root cause.** Don't loosen a test, suppress a lint, or skip a typecheck to make the chunk "pass."
+- **`--no-verify` is forbidden** unless the user explicitly authorizes it.
+- **A flaky failure is a real failure.** Re-running until green is not a verification strategy. See "Flake policy" below.
+
+### What "done" means
+
+A chunk is done when **all** of the following are true:
+
+1. The behavior described in the chunk's plan exists in the code.
+2. There is at least one test that would fail if the behavior were removed.
+3. All checks listed in "After every chunk" pass.
+4. No new TODOs, `@ts-expect-error`, or `// FIXME` were introduced without an issue number reference.
+5. The relevant doc(s) were updated in the same chunk if behavior changed (per `README.md` of the engineering doc set).
+
+If any of these are false, the chunk is in progress, not done.
+
 ## Flake policy
 
 - A test that flakes is broken, not "sometimes failing." Open an issue, mark it `test.skip` with a reference to the issue, fix it.

@@ -14,9 +14,11 @@ LLM specifics (see `06-llm-integration.md`), persistence details (see `04-persis
 ingest → parse → classify → detect entries → detect paths → categorize paths
 ```
 
+In **comparison mode** (two commit refs), the pipeline runs twice — once at base, once at head — into separate cache DBs, followed by a Delta and Risk stage that produces the comparison surface. The per-ref runs are unchanged from walkthrough mode; the comparison-specific work is captured in the Delta and Risk stage below and in `13-comparison-flows.md`.
+
 Each stage:
 - Takes a typed input from the previous stage (or the orchestrator).
-- Writes its output to `cache.db` under its own tables.
+- Writes its output to `cache.db` (or the active per-ref cache, in comparison mode) under its own tables.
 - Is independently re-runnable. Re-running with unchanged inputs is a no-op.
 - Accepts an `AbortSignal`.
 - Emits progress events (see "Progress events" below).
@@ -50,6 +52,7 @@ export type FrameworkAdapter = {
 - **Idempotent.** Same input → same output.
 - **Does not import from `@cw/analyzer`.** Analyzer orchestrates adapters; adapters do not call the analyzer.
 - **Adds its own test fixtures under `fixtures/<adapter>/`.**
+- **Emits `NodeSignature` for every analyzable node.** This is a comparison-mode prerequisite that costs near-nothing during parse (the AST is already walked). Adapters that omit it cannot participate in comparison mode. See `13-comparison-flows.md` for the contract.
 
 The JS/TS adapter is the reference implementation. Adding a new language means writing a new adapter module; no core changes required.
 
@@ -238,6 +241,36 @@ type PreambleNode = {
 
 **Degradation**: `summary` is null without LLM; UI renders the node name and a "show code" affordance.
 
+## Stage — Delta and Risk (comparison mode only)
+
+**When it runs**: only in comparison mode, after both per-ref analyses have completed.
+
+**Input**: the base and head per-ref cache DBs (`base.db` / `head.db`) — specifically `node_signatures`, `call_edges`, `paths`, and `path_nodes` from each.
+
+**Output**: written to the per-comparison `delta.db`:
+- `contract_changes` — one row per detected `ContractChange`.
+- `affected_callers` — one row per affected caller per contract change.
+- `path_deltas` — one row per path-pair (or unmatched path).
+- `path_delta_positions` — per-position alignment within each path-pair.
+- `indirect_impact_paths` — paths classified `unchanged` that cross a `ContractChange`.
+
+**Substeps**:
+
+1. **Signature diff** — for every `nodeIdentity` present in either ref, diff `NodeSignature` records and emit one or more `ContractChange` rows.
+2. **Affected-caller enumeration** — for each `ContractChange`, query head-side `call_edges` for callers; cross-reference against head-side path membership to set `caller_on_changed_path` and `caller_on_any_walked_path`. For `param_default_removed` and `param_added_required`, inspect the call-site argument count to fill `call_passes_argument`.
+3. **Path-pair alignment** — pair base and head paths by **strict identity** (matching `entry_point_key = framework + kind + route`). Unmatched paths emit `net_new` or `net_gone`. Matched pairs emit `restructured`, `modified_in_place`, or `unchanged`.
+4. **Per-position alignment** — for matched pairs, run a Myers-style diff over the ordered node-identity list to produce `path_delta_positions` rows.
+5. **Body-kind classification** — for nodes with `change_kind = body_changed`, set `body_kind` to `behavioral` or `cosmetic`. Cosmetic detection allows whitespace, comments, and only-log-call diffs; anything else is `behavioral`.
+6. **Indirect impact** — for each `ContractChange`, find head-side paths whose membership includes the changed node and whose `PathDelta.classification == unchanged`. Emit one `IndirectImpactPath` per such path.
+
+**No LLM in this stage.** The detection is deterministic. Optional LLM polish (delta narratives, prep questions) runs in a separate downstream pass — see `13-comparison-flows.md` and `06-llm-integration.md`.
+
+**Degradation**: not applicable; this stage doesn't use the LLM.
+
+**Cancellation**: each substep checks `signal.throwIfAborted()` between rows. Aborting mid-stage leaves `delta.db` partial; the orchestrator deletes it on abort so the next run starts clean.
+
+**Persistence and isolation**: each `(baseRef, headRef)` pair gets its own directory under `comparisons/`. See `04-persistence.md` for the layout. The full comparison contract — data shapes, alignment strategy, what the layers guarantee to the reviewer — lives in `13-comparison-flows.md`.
+
 ## Synthetic walkthroughs
 
 Non-path code (configs, seeds, bootstrap) gets curated sequences.
@@ -259,7 +292,12 @@ type AnalysisEvent =
   | { kind: 'stage_completed'; stage: StageName }
   | { kind: 'stage_failed'; stage: StageName; error: string }
   | { kind: 'analysis_completed' }
-  | { kind: 'analysis_cancelled' };
+  | { kind: 'analysis_cancelled' }
+  // Comparison mode (see 13-comparison-flows.md)
+  | { kind: 'comparison_ref_started'; ref: 'base' | 'head' }
+  | { kind: 'comparison_ref_completed'; ref: 'base' | 'head' }
+  | { kind: 'delta_started' }
+  | { kind: 'delta_completed'; contractChanges: number; pathDeltas: number; indirectImpact: number };
 ```
 
 Events carry no large payloads. The UI polls result tables via regular procedures when a stage completes.

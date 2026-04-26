@@ -30,6 +30,10 @@ Defaults (override per-pipeline via config):
 | Prep-answer pre-generation | `claude-haiku-4-5` | Short suggestions |
 | LLM rule evaluation | User-configured; default `claude-haiku-4-5` | User choice |
 | Fix/clarification suggestions | `claude-opus-4-7` | User-initiated, quality matters |
+| Comparison: contract-change summary | `claude-haiku-4-5` | One sentence per change |
+| Comparison: path-delta narrative | `claude-haiku-4-5` | Short paragraph per affected path |
+| Comparison: delta-prep questions | `claude-opus-4-7` | Reasoning over the delta; quality matters |
+| Comparison: alignment suggestions | `claude-opus-4-7` | Cross-path reasoning; runs once per comparison |
 
 Model selection is central in `apps/server/src/llm/models.ts`. Every pipeline imports from there; no hard-coded model IDs elsewhere.
 
@@ -86,6 +90,10 @@ The `disabled` result is how callers detect the "LLM off" case — they never se
 | **LLM rule evaluation** | **Rule result = `unchecked`** | **No** | **Explicit `unchecked` badge, distinct from pass/fail; does not count toward coverage** |
 | Preamble summary | Omit summary | No | Node name only; "show code" expands |
 | Fix/clarification suggestions | Action hidden | No (user never sees stale suggestion) | Button absent |
+| Comparison: contract-change summary | Skip; UI shows structural diff only | No | Diff hunk shown without one-line narrative |
+| Comparison: path-delta narrative | Skip; UI shows position-level changes only | No | Path comparison rendered without per-path summary |
+| Comparison: delta-prep questions | Skip; no prep questions surface | No | Empty prep panel for the comparison |
+| Comparison: alignment suggestions | Skip; pairings stay strict-identity | No | `net_new`/`net_gone` listed as detected; no "looks like the same path rewritten" hints |
 
 ### The `unchecked` rule state
 

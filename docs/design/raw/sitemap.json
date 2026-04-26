@@ -1,0 +1,113 @@
+{
+  "entry_points": ["codebase_picker"],
+  "screens": [
+    {
+      "name": "Codebase Picker",
+      "safe_name": "codebase_picker",
+      "purpose": "Select a local directory to ingest, or resume a previously-ingested codebase from a list of known codebases (serves as welcome/empty state on first run).",
+      "appears_in_flows": ["Ingest and Prep a New Codebase"],
+      "reachable_from": [],
+      "leads_to": ["analysis_progress", "project_overview", "comparison_setup", "settings"],
+      "priority": "primary"
+    },
+    {
+      "name": "Analysis Progress",
+      "safe_name": "analysis_progress",
+      "purpose": "Show per-project analysis progress (AST parse, classification, entry-point detection, path construction) while the reviewer waits or begins prep in parallel.",
+      "appears_in_flows": ["Ingest and Prep a New Codebase"],
+      "reachable_from": ["codebase_picker", "comparison_setup"],
+      "leads_to": ["prep_pass", "project_overview"],
+      "priority": "primary"
+    },
+    {
+      "name": "Prep Pass",
+      "safe_name": "prep_pass",
+      "purpose": "Triage unresolved questions from analysis — ambiguous classifications, unresolved path branches, entry-point confirmations, possible renames — one question at a time with pre-generated answers and alternatives.",
+      "appears_in_flows": ["Ingest and Prep a New Codebase"],
+      "reachable_from": ["analysis_progress", "project_overview", "walkthrough_node"],
+      "leads_to": ["project_overview", "walkthrough_node"],
+      "priority": "primary"
+    },
+    {
+      "name": "Project Overview",
+      "safe_name": "project_overview",
+      "purpose": "The project's home base — detected paths (optionally categorized by theme), synthetic walkthroughs for non-path code, entry to the file browser, progress indicators, and remaining prep questions. Absorbs the role of presenting available paths to pick from.",
+      "appears_in_flows": ["Ingest and Prep a New Codebase", "Guided Path Walkthrough", "New Code Comparison Review", "File Browser Review"],
+      "reachable_from": ["analysis_progress", "prep_pass", "comparison_overview", "walkthrough_node", "file_browser", "file_view", "progress_dashboard", "codebase_picker"],
+      "leads_to": ["walkthrough_node", "file_browser", "prep_pass", "progress_dashboard", "comparison_setup", "rule_management", "settings"],
+      "priority": "primary"
+    },
+    {
+      "name": "Walkthrough Node",
+      "safe_name": "walkthrough_node",
+      "purpose": "The core review surface — one node at a time with syntax-highlighted code, classification, checklist (built-in + user + project rules with origins), rule evaluations, four-state status indicator, review actions (approve / reject / request info), comments, the ability to dig into called functions and return, visibility of preamble context above the entry point, and a way to move to the next / previous node on the current path or take a fork when the path branches.",
+      "appears_in_flows": ["Guided Path Walkthrough", "Dig Into a Called Function", "New Code Comparison Review", "File Browser Review"],
+      "reachable_from": ["project_overview", "walkthrough_node", "file_view", "comparison_overview"],
+      "leads_to": ["walkthrough_node", "project_overview", "prep_pass", "file_view"],
+      "priority": "primary"
+    },
+    {
+      "name": "File Browser",
+      "safe_name": "file_browser",
+      "purpose": "Navigable view of the project's files with per-file classification and four-state status; fallback for non-path code (configs, scripts, seeds) and free browsing.",
+      "appears_in_flows": ["File Browser Review"],
+      "reachable_from": ["project_overview", "file_view"],
+      "leads_to": ["file_view", "project_overview", "walkthrough_node"],
+      "priority": "primary"
+    },
+    {
+      "name": "File View",
+      "safe_name": "file_view",
+      "purpose": "Holistic file review — full file with syntax highlighting, file-level classification, per-function status indicators, file-level and function-level status actions with cascade resolution, and line-range/function/file comments.",
+      "appears_in_flows": ["File Browser Review"],
+      "reachable_from": ["file_browser", "walkthrough_node"],
+      "leads_to": ["file_browser", "walkthrough_node", "project_overview"],
+      "priority": "primary"
+    },
+    {
+      "name": "Comparison Setup",
+      "safe_name": "comparison_setup",
+      "purpose": "Supply two commit refs (base and head), confirm the comparison range, and kick off a comparison-mode analysis for PR review or AI-code audit.",
+      "appears_in_flows": ["New Code Comparison Review"],
+      "reachable_from": ["codebase_picker", "project_overview", "comparison_overview"],
+      "leads_to": ["analysis_progress", "comparison_overview"],
+      "priority": "primary"
+    },
+    {
+      "name": "Comparison Overview",
+      "safe_name": "comparison_overview",
+      "purpose": "Change summary for PR / AI-code audit — counts of new/modified/renamed/deleted functions and files, detected paths with change-touch markers, modified-since-approval counts per path, and comparison-aware entry into walkthroughs.",
+      "appears_in_flows": ["New Code Comparison Review"],
+      "reachable_from": ["comparison_setup", "walkthrough_node", "progress_dashboard"],
+      "leads_to": ["walkthrough_node", "file_browser", "progress_dashboard", "comparison_setup", "project_overview"],
+      "priority": "primary"
+    },
+    {
+      "name": "Progress Dashboard",
+      "safe_name": "progress_dashboard",
+      "purpose": "Coverage and composition view — path coverage vs full coverage, approve/reject/info breakdown, per-project / per-path / per-file scoping, outstanding info requests, and progress reset controls.",
+      "appears_in_flows": ["New Code Comparison Review"],
+      "reachable_from": ["project_overview", "comparison_overview", "walkthrough_node"],
+      "leads_to": ["project_overview", "comparison_overview", "walkthrough_node", "file_view"],
+      "priority": "primary"
+    },
+    {
+      "name": "Rule Management",
+      "safe_name": "rule_management",
+      "purpose": "Author, edit, enable/disable, and scope rules (built-in / user / project) — pattern rules, shell-command rules, and LLM prompt rules — with origin visibility per rule and per-classification checklist previews.",
+      "appears_in_flows": [],
+      "reachable_from": ["project_overview", "settings", "walkthrough_node"],
+      "leads_to": ["project_overview", "settings"],
+      "priority": "secondary"
+    },
+    {
+      "name": "Settings",
+      "safe_name": "settings",
+      "purpose": "Global preferences — LLM feature opt-in/out, LLM provider configuration, syntax-highlight theme (single default for v1), data location, and cache controls.",
+      "appears_in_flows": [],
+      "reachable_from": ["codebase_picker", "project_overview", "rule_management"],
+      "leads_to": ["codebase_picker", "project_overview", "rule_management"],
+      "priority": "secondary"
+    }
+  ]
+}

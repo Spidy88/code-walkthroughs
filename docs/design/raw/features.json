@@ -1,0 +1,257 @@
+{
+  "core_value_proposition": "Point the tool at a codebase and it builds guided execution paths from real entry points, so a reviewer can walk the code in the order it runs — taking approve / reject / info actions on each node — and end with a clear record of what they covered and what still needs attention. The same flow serves new-codebase onboarding, PR review, and AI-code audit by varying only the inputs.",
+  "features": [
+    {
+      "name": "Codebase ingestion and project detection",
+      "description": "Point the tool at a local directory; it detects standalone projects and monorepo workspaces (npm/yarn/pnpm/lerna/nx/turborepo), identifies languages and frameworks, and initializes per-codebase persistent state. Unsupported-language projects are listed but marked not-walkable without blocking supported ones.",
+      "priority": "must",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner, I want to point the tool at a repo and have it figure out what's in there so that I don't have to explain my stack to my tooling.",
+      "complexity": "high",
+      "notes": "Idempotent — running again triggers incremental re-analysis."
+    },
+    {
+      "name": "Deterministic AST-based analysis",
+      "description": "Parse JS/TS files with a production-grade AST to produce symbol tables, intra-file call graphs, cross-file import/export graphs, and framework-declarative metadata. No LLM use in structural parsing.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want function boundaries and call sites to come from the AST so that the paths I review reflect what actually runs, not a language model's guess.",
+      "complexity": "high",
+      "notes": "Load-bearing for everything downstream."
+    },
+    {
+      "name": "Layered file and function classification",
+      "description": "Assign each file and top-level function a classification (route_handler, service, client, repository, helper, middleware, component, page, hook, config, script, seed, fixture, test, type_only, unclassified) via deterministic signals first, LLM augmentation for ambiguous cases, and author confirmation for disagreements.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want every node to carry a classification so that the right checklist appears when I review it.",
+      "complexity": "high",
+      "notes": "Classification set is extensible — adapters and users can add classifications with their own checklists."
+    },
+    {
+      "name": "Optional Stage 0 architectural summary",
+      "description": "Before per-file classification, optionally run an LLM pass that reads the directory tree only (paths, no file contents) and produces hints about layout convention and framework stack that seed the classifier as priors.",
+      "priority": "could",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner on an unusual codebase layout, I want the classifier to understand the project's convention so that it doesn't mislabel everything because my structure doesn't match its default patterns.",
+      "complexity": "medium",
+      "notes": "Cheap (paths only, no contents sent). Only runs when LLM features are enabled. Output is hints, cannot finalize a classification on its own."
+    },
+    {
+      "name": "Entry point detection and path construction",
+      "description": "Detect entry points per framework (HTTP routes, CLI commands, jobs, events, frontend routes), trace the call graph from each to construct ordered node sequences up to a configurable depth, and resolve ambiguity (dynamic dispatch, factories, polymorphism) deterministically first, then via LLM with confidence scoring and overlap check, then via a prep question.",
+      "priority": "must",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner, I want to see the paths a request takes through the code so that I can understand behavior in execution order, not file order.",
+      "complexity": "high",
+      "notes": "Depth is configurable to prevent combinatorial explosion. Reviewer can always dig further at walkthrough time."
+    },
+    {
+      "name": "Context preamble chain",
+      "description": "For each entry point, compute the environmental preamble (app mount, global middleware, providers, logging) and any dispatcher-shaped preamble (router). Walkthroughs begin at the entry point itself; the preamble is a collapsed 'context above' panel one expand away.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want to start at the function I'm reviewing without first clicking through the app's router so that I'm not paying friction for context I rarely need.",
+      "complexity": "medium",
+      "notes": "Dispatcher destinations are each their own entry point with the dispatcher visible as context."
+    },
+    {
+      "name": "Author prep pass",
+      "description": "Surface unresolved questions after initial analysis — ambiguous classifications, unresolved path branches, entry-point confirmation, optional intent capture, and possible renames — with LLM-pre-generated proposed answers and plausible alternatives the author confirms, picks, or overrides with a custom answer.",
+      "priority": "must",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor, I want to triage the classifier's uncertainty up front so that by the time I'm in a walkthrough, the right checklists are firing without re-prompting.",
+      "complexity": "high",
+      "notes": "Not blocking — walkthroughs can begin with prep incomplete. Questions encountered mid-walkthrough are written back so answers are reused."
+    },
+    {
+      "name": "Guided path walkthrough",
+      "description": "Primary review flow. Open at an entry point, see the node's code foregrounded with syntax highlighting, its classification and checklist, review actions, dig-into affordances on downstream calls, and navigation (prev / next / branch / context-above panel). Proceed node by node to the path's terminus.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want to walk a path one node at a time in the order it runs so that I review behavior, not files.",
+      "complexity": "high",
+      "notes": "Only code on the current path is foregrounded. Unrelated functions in the same file are accessible via the file browser."
+    },
+    {
+      "name": "Path ordering and categorization",
+      "description": "Present paths in a suggested review order: LLM-named thematic categories (auth, billing, admin operations), simplest-first within a category, and a foundational-first bias across categories. PR mode overrides to 'paths touching changed code first.' Reviewer can reorder or pick any path directly.",
+      "priority": "could",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner, I want the tool to suggest which paths to walk first so that I don't start with billing when I don't understand auth yet.",
+      "complexity": "medium",
+      "notes": "With LLM features disabled, paths are presented without categorization, ordered deterministically."
+    },
+    {
+      "name": "Dig-into navigation with reuse handling",
+      "description": "When the current node calls another function, push the current node onto a navigation stack and open the called function. Popping returns to the caller. For previously-reviewed functions, show the prior status and offer Skip (default) or Re-examine.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want to follow a call arbitrarily deep for context and then pop back to the main path so that I can verify behavior without losing my place.",
+      "complexity": "medium",
+      "notes": "Actions taken while dug-in apply globally by default. Path-scoped approval is an explicit opt-in at action time."
+    },
+    {
+      "name": "Status actions with history",
+      "description": "Three status actions — Approve, Reject, Request Info — each optionally carrying a single accompanying comment that justifies the action (required for Request Info). A node has exactly one current status; taking a new action replaces the previous, with prior actions preserved in history.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want a small fixed set of status actions so that my review produces a clear, enumerable record.",
+      "complexity": "low",
+      "notes": "Keep the vocabulary small. Status is per-node, not per-line."
+    },
+    {
+      "name": "Free-form comments",
+      "description": "Comments independent of status, attachable to a specific line range (GitHub-style), to a function as a whole, or to a file as a whole. Multiple per node, accumulate, do not change status, persist across status changes.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want to leave notes without marking the node reviewed so that I can annotate and come back.",
+      "complexity": "medium",
+      "notes": "Comments accumulate. Deliberately distinct from status actions."
+    },
+    {
+      "name": "File-level cascade with override resolution",
+      "description": "File-level status actions cascade to every function in the file. Function-level actions override cascaded file-level status. When the reviewer takes a file action that would conflict with existing function-level statuses, prompt with Preserve (default) / Override / Cancel.",
+      "priority": "must",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner reviewing a config-heavy file, I want to approve the whole file at once while keeping any function I already flagged separately.",
+      "complexity": "medium",
+      "notes": "Function-level actions never propagate upward. Default to preserving the reviewer's more specific intent."
+    },
+    {
+      "name": "Path-scoped approval opt-in",
+      "description": "For context-sensitive functions, narrow a status action to 'this path only' at the moment of the action. Subsequent appearances in other paths are marked 'previously approved in path X — not yet reviewed for this path's usage,' with the same Skip / Re-examine affordance. Reviewer can later promote to global.",
+      "priority": "should",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor, I want to approve a helper in one context but not vouch for it in every context so that my approvals reflect what I actually verified.",
+      "complexity": "medium",
+      "notes": "Explicit opt-in — default is global. Outside walkthroughs (file browser, file-level cascades), status actions are always global."
+    },
+    {
+      "name": "Classification-driven checklists",
+      "description": "Each classification carries a default checklist (route_handler → auth, input validation, error handling, response consistency; component → prop contract, accessibility, memoization, side effects; etc.). The active classification's checklist appears alongside the node during review.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want the right questions in front of me for this kind of code so that I don't have to remember what I should be checking.",
+      "complexity": "medium",
+      "notes": "Defaults are a starting point — users override and extend via rule authoring."
+    },
+    {
+      "name": "Built-in pattern rules",
+      "description": "AST-matcher or regex-based rules shipped with the tool — e.g., 'a route handler must call an authorize-shaped function before returning success.' Evaluated automatically against each node and displayed with pass/fail/skip state in the checklist.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want common patterns auto-checked so that I focus my attention on what the tool can't evaluate.",
+      "complexity": "medium",
+      "notes": "Ship with a reasonable default set per classification."
+    },
+    {
+      "name": "Shell command rule authoring",
+      "description": "User provides a shell command; the tool invokes it with structured input on stdin (code, path, classification, framework, metadata) and reads structured output (pass/fail/skip + message) from stdout. This is the native plugin surface for v1.",
+      "priority": "should",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor, I want to plug in custom checks written in whatever language I want so that my team's lint rules become review rules.",
+      "complexity": "medium",
+      "notes": "Any language or tool invocable as a command is supported via this tier."
+    },
+    {
+      "name": "LLM prompt rule authoring",
+      "description": "User provides a prompt template. The tool fills in node context, calls the configured LLM, and parses a structured response.",
+      "priority": "could",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor, I want to write a natural-language check for 'does this function invent an API endpoint that doesn't exist elsewhere' so that I can target AI-code-specific failure modes.",
+      "complexity": "medium",
+      "notes": "Requires LLM features enabled. Unavailable when disabled."
+    },
+    {
+      "name": "Rule scoping and layering",
+      "description": "Project-level rules live inside the project directory and are checked into version control so teams share them. User-level rules live in the reviewer's personal configuration and apply across all codebases. Effective checklist per classification is user rules ⊕ project rules; project rules can enable, disable, or override user rules. Each checklist item shows its origin (built-in / user / project).",
+      "priority": "should",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer on a team, I want project rules to override my personal rules so that our team standards win on our codebase.",
+      "complexity": "medium",
+      "notes": "Origin must be visible per rule — reviewers ask 'why is this checking?' and the answer must be obvious."
+    },
+    {
+      "name": "File browser fallback",
+      "description": "List all projects, then all files within a project. Reviewer opens any file and reviews holistically. All review actions apply. Catches code that doesn't fit a path (configs, scripts, seeds, setup) and supports free browsing and spot-checking.",
+      "priority": "must",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner, I want to open any file directly when I know what I want to look at so that guided paths aren't the only way in.",
+      "complexity": "low",
+      "notes": "Out-of-walkthrough actions are always global."
+    },
+    {
+      "name": "Synthetic walkthroughs for non-path code",
+      "description": "Curated sequences of non-path files grouped by topic (build config, runtime config, seed data, framework bootstrapping) so the reviewer has a complete coverage plan, not just detected paths.",
+      "priority": "should",
+      "persona": "The New Joiner",
+      "user_story": "As a New Joiner, I want configs grouped by concern and walked in a sensible order so that the non-path parts of the codebase still get a guided review.",
+      "complexity": "medium",
+      "notes": "Appears alongside detected paths in the path list."
+    },
+    {
+      "name": "Progress tracking",
+      "description": "Per-reviewer, per-codebase: coverage fraction, approval/rejection/info-requested composition, scoped progress per project / path / file, and two coverage flavors — path coverage (all paths walked) and full coverage (every file acted upon). Both displayed; neither required to 'finish.'",
+      "priority": "must",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor, I want to see at a glance what I've covered and what's still outstanding so that I can defend the completeness of my audit.",
+      "complexity": "medium",
+      "notes": "Progress resettable at codebase / project / path / file level. Completeness is reviewer-defined."
+    },
+    {
+      "name": "Four-state node status display",
+      "description": "Every node's state is one of: never reviewed, reviewed-current, reviewed-stale (code changed since review), or explicitly pending info. Walkthrough and progress displays distinguish all four so reviewers see at a glance what requires attention and why.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer returning after a re-analysis, I want to see which of my prior approvals are now stale so that I know where to re-focus.",
+      "complexity": "medium",
+      "notes": "Stale = prior status preserved in history; current status pending; diff against previously-reviewed version available."
+    },
+    {
+      "name": "Incremental re-analysis",
+      "description": "Re-analysis is triggered by the reviewer or on detection of file changes. Files whose AST and dependency inputs are unchanged reuse prior analysis. Function body changes revert current status to pending while preserving prior action in history.",
+      "priority": "must",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want the tool to recognize unchanged code so that my approvals survive re-analysis on unrelated work.",
+      "complexity": "high",
+      "notes": "Nothing is auto-approved. History is retained for context but does not contribute to current coverage metrics."
+    },
+    {
+      "name": "Function rename detection",
+      "description": "On re-analysis, if a known function is missing from its file and a new function appears in the same file with sufficiently similar body (AST-shape similarity + token overlap above a threshold), flag a possible rename. Reviewer confirms to carry approval / comments / history to the new identity, or rejects to treat the new function as new and unreviewed.",
+      "priority": "should",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want my prior approval to follow a renamed function so that I don't re-review the same code under a new name.",
+      "complexity": "medium",
+      "notes": "Similarity threshold is an open question parked for implementation tuning."
+    },
+    {
+      "name": "File rename detection via minimal git",
+      "description": "When the codebase is a git repository and the reviewer has supplied two commit refs for comparison, use git's built-in rename detection (read-only) to map old paths to new paths so review state transfers across renames. No history traversal, no branch operations.",
+      "priority": "should",
+      "persona": "The PR Reviewer",
+      "user_story": "As a PR Reviewer, I want file moves to preserve review state when I've given the tool commit refs so that a refactor doesn't erase approvals.",
+      "complexity": "medium",
+      "notes": "Without git or commit refs, moved files are treated as old-deleted / new-added. Reviewer can manually resolve via prep pass."
+    },
+    {
+      "name": "New-code comparison mode (PR / AI-code review)",
+      "description": "Reviewer provides two commit refs — base and head. Tool reads file trees at each commit, computes added/modified/renamed/deleted files, marks functions as new / modified / renamed / unchanged-context in walkthroughs, and runs paths across the head snapshot with modified-since-approval indicators. Path ordering defaults to 'paths touching changed code first, then paths touching context.'",
+      "priority": "must",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor, I want to review a batch of AI changes in behavioral order with clear markers for what is actually new so that I audit behavior, not diff locations.",
+      "complexity": "high",
+      "notes": "PR review and AI-code review are the same feature with different origins. Without commit refs, the tool operates on a flat snapshot."
+    },
+    {
+      "name": "LLM feature opt-in and opt-out",
+      "description": "Global toggle for LLM-backed features. When disabled: classification falls back to deterministic-only (low-confidence items become prep questions without pre-generated answers), path inference stops at deterministic resolution, Stage 0 and path categorization are skipped, LLM rule types are unavailable. UI makes it explicit when code will be sent to an external service.",
+      "priority": "must",
+      "persona": "The AI-Code Auditor",
+      "user_story": "As an AI-Code Auditor on a sensitive codebase, I want to disable LLM features and still use the tool so that my code never leaves the machine.",
+      "complexity": "low",
+      "notes": "Disabling LLM features degrades quality but does not break any core feature. LLM results are cached per input hash and calls are batched where feasible."
+    }
+  ]
+}

@@ -139,6 +139,42 @@ The two "needs attention" buckets are distinguished in the UI so reviewers can s
 
 Neither is "required to finish" — reviewer-defined.
 
+## Risk-aware path marking (comparison mode)
+
+Comparison mode introduces a **risk marker** that is orthogonal to status. A path can be marked "indirectly affected by a contract change" without any status action being taken on it, and without altering the status of nodes on the path.
+
+### What a risk marker is
+
+A risk marker is a derived, ephemeral fact about a path within an active comparison. It is **not** a status; it does not transition through the four-state machine; it does not appear in `review_status` or `review_history`. It is computed from `delta.db.indirect_impact_paths` (see `13-comparison-flows.md` and `04-persistence.md`) and surfaced by the API as part of path metadata.
+
+```ts
+type PathRiskMarker = {
+  readonly pathId: string;
+  readonly contractChangeIds: readonly string[];
+  // Why this path is marked: the contracts whose surface area it crosses
+};
+```
+
+### Properties
+
+- **Computed, not stored as state.** The marker is derived from the active comparison's `delta.db`. Closing the comparison removes the marker; it does not persist to `state.db`.
+- **Independent of approval.** A path can be `reviewed_current` on every node *and* carry a risk marker. The marker is "this path traverses a contract that changed" — it does not invalidate prior approvals. The reviewer decides whether the marker warrants re-review.
+- **Independent of staleness.** A node's `code_hash` can be unchanged (so the node is `reviewed_current`), and the path can still carry a risk marker because a *different* node it reaches had a contract change. Risk markers and `reviewed_stale` describe different facts.
+- **Visible in path lists.** When a comparison is active, path-list responses include `riskMarker: PathRiskMarker | null` per path so the UI can badge it.
+- **Per-comparison.** Two simultaneously-open comparisons would produce two distinct marker sets. v1 supports one active comparison at a time.
+
+### Risk markers do not gate
+
+Consistent with the identification-not-judgment principle (`13-comparison-flows.md`), the system does not block, prompt for, or require action on a risk-marked path. The marker is a prompt for attention, not a workflow gate. The reviewer can ignore it, take a fresh status action on a node, or open the contract-change view to evaluate impact — all are valid responses.
+
+### Why this is not a fifth state
+
+Adding a fifth status state would conflate two different facts (was this reviewed? does the change affect it?) into one column. Keeping the marker derived means:
+
+- The four-state status machine stays the source of truth for "has the reviewer evaluated this?"
+- Comparison mode adds a *cross-cutting* signal that the reviewer reads alongside status, not in place of it.
+- Review state survives across comparison sessions unchanged. Opening or closing a comparison never mutates `review_status`.
+
 ## Reviewer identity
 
 All rows carry `reviewer_id`. In v1 there is a single reviewer per installation, but the column is present so multi-reviewer features can be added without a migration. Procedures read the reviewer from session context; the UI never passes it.

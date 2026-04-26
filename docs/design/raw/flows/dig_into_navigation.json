@@ -1,0 +1,47 @@
+{
+  "flow_name": "Dig Into a Called Function",
+  "description": "The sub-flow for following a downstream call during a walkthrough and returning. Models the reviewed-function reuse handling (Skip / Re-examine) and the global-vs-path-scoped action decision.",
+  "trigger": "Reviewer clicks a dig-into affordance on a downstream call in the current walkthrough node",
+  "persona": "The PR Reviewer",
+  "steps": [
+    {
+      "step": 1,
+      "screen": "walkthrough_node",
+      "user_action": "Identifies a downstream call they want to follow and clicks its dig-into affordance",
+      "system_response": "If the called function has no prior status, pushes the current node onto the navigation stack and opens the called function as the new current node. If the called function already has a status action (in this session or any prior), shows a prompt with the prior status and two options: Skip (default, highlighted) or Re-examine.",
+      "next_screen": "walkthrough_node_or_reuse_prompt",
+      "notes": "Default to Skip because forcing re-review of every helper that appears across many paths adds friction without review value. Skip keeps Re-examine one click away."
+    },
+    {
+      "step": 2,
+      "screen": "reuse_prompt_or_walkthrough_node",
+      "user_action": "On the reuse prompt: presses Skip to continue past the call without reopening, or presses Re-examine to dig in anyway. For a never-reviewed call, the prompt is bypassed.",
+      "system_response": "Skip: dismisses the prompt; the walkthrough stays on the caller. Re-examine: pushes the caller onto the stack; opens the called function as the new current node with all normal walkthrough affordances.",
+      "next_screen": "walkthrough_node",
+      "notes": "The reuse prompt is the same mechanism used for path-scoped approvals whose function reappears in another path — reuse is surfaced, not gated."
+    },
+    {
+      "step": 3,
+      "screen": "walkthrough_node",
+      "user_action": "Reviews the dug-into function: reads the code, optionally digs further, optionally takes a status action. If taking an action, chooses global scope (default) or path-scoped scope (explicit opt-in).",
+      "system_response": "Status action applies globally by default — the function is marked reviewed regardless of path. Path-scoped opt-in narrows the action to the current path; subsequent appearances in other paths show 'previously approved in path X — not yet reviewed for this path's usage.'",
+      "next_screen": "walkthrough_node",
+      "notes": "Reviewer can later promote a path-scoped approval to global from the function's review history."
+    },
+    {
+      "step": 4,
+      "screen": "walkthrough_node",
+      "user_action": "Presses back / pop to return to the caller",
+      "system_response": "Pops the stack; restores the caller as the current node with its scroll position and state intact.",
+      "next_screen": "walkthrough_node",
+      "notes": "The dig-into stack is orthogonal to main path progression. Popping does not advance the main path — the reviewer still has to press next to move along the path."
+    }
+  ],
+  "success_state": "Reviewer has gathered the context they needed from the downstream call (with or without a status action on it) and returned to the main path at the same position they left",
+  "error_states": [
+    "Called function is in an unsupported-language project → show a non-walkable node card with the file path and language badge; no review actions available",
+    "Called function cannot be resolved (dynamic dispatch with low LLM confidence) → show the ambiguity, surface it as a prep question, let the reviewer pick which implementation to dig into",
+    "Reviewer digs very deep and loses track → stack is always visible with a breadcrumb showing caller → callee chain; reviewer can pop multiple levels at once",
+    "Reviewer hits a cycle (A calls B calls A) → detect and show a cycle indicator; offer to pop to the prior A node or continue into B's body without recursing"
+  ]
+}

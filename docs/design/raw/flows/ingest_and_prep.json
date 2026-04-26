@@ -1,0 +1,48 @@
+{
+  "flow_name": "Ingest and Prep a New Codebase",
+  "description": "The on-ramp: the reviewer points the tool at a local directory, analysis runs, and the reviewer triages the tool's unresolved questions before starting walkthroughs.",
+  "trigger": "Reviewer opens the tool with no codebase loaded, or opens the tool and chooses 'add codebase'",
+  "persona": "The New Joiner",
+  "steps": [
+    {
+      "step": 1,
+      "screen": "codebase_picker",
+      "user_action": "Selects a local directory",
+      "system_response": "Detects projects (standalone vs monorepo workspaces), identifies languages and frameworks per project, initializes per-codebase state, and begins analysis. Shows progress per project with language/framework badges; unsupported-language projects are listed but marked 'not walkable' without blocking.",
+      "next_screen": "analysis_progress",
+      "notes": "Idempotent — re-running on a previously-ingested codebase triggers incremental re-analysis rather than a full rebuild."
+    },
+    {
+      "step": 2,
+      "screen": "analysis_progress",
+      "user_action": "Waits (or opens the prep pass in parallel as questions accumulate)",
+      "system_response": "Runs deterministic AST parsing, Stage 1 classification, entry-point detection, and path construction. If LLM features are enabled, runs Stage 0 architectural summary (paths-only, once per project) and Stage 2 classification augmentation. Surfaces unresolved questions into the prep queue as it goes.",
+      "next_screen": "prep_pass",
+      "notes": "Prep pass is not blocking — reviewer can begin walkthroughs with prep incomplete; quality improves as prep progresses."
+    },
+    {
+      "step": 3,
+      "screen": "prep_pass",
+      "user_action": "Reviews the prep queue: ambiguous classifications, unresolved path branches, entry-point confirmations, possible renames on re-analysis, optional intent captures. For each question, confirms the pre-generated answer, picks an alternative, or writes a custom answer.",
+      "system_response": "Advances through the queue. Each answer updates downstream analysis (e.g., resolving a factory's production implementation re-materializes the path). Remaining unanswered questions stay in the queue and can be revisited mid-walkthrough.",
+      "next_screen": "project_overview",
+      "notes": "LLM pre-generates proposed answers and plausible alternatives before the reviewer sees each question to bound LLM cost (one call per question) and reviewer effort (click, not compose). With LLM features disabled, questions appear without pre-generated answers."
+    },
+    {
+      "step": 4,
+      "screen": "project_overview",
+      "user_action": "Selects a project to enter",
+      "system_response": "Shows the project's detected paths (optionally categorized by theme with an LLM-suggested order), synthetic walkthroughs for non-path code, a file browser, and progress indicators. Entry points and unanswered prep questions are visible.",
+      "next_screen": "path_list_or_walkthrough",
+      "notes": "If no project is selected and the codebase has one project only, auto-navigate to the project overview."
+    }
+  ],
+  "success_state": "Reviewer is on a project overview with analyzed paths available, prep sufficiently triaged to make classifications useful, and the tool ready for the first walkthrough",
+  "error_states": [
+    "No supported-language projects in the codebase → show the list of detected projects with 'not walkable' state and a brief explanation; offer to re-scan a different directory",
+    "Monorepo detection fails → fall back to scanning nested package.json files and show what was found; allow the reviewer to add or exclude projects manually",
+    "LLM features enabled but provider unreachable → degrade gracefully to deterministic-only analysis; surface the failure and offer retry without blocking analysis",
+    "Codebase is very large and initial analysis is slow → stream completed projects into the overview as they finish; don't hold all projects behind the slowest one",
+    "Ingestion on a codebase that is a loose collection of unrelated projects → tool flags non-goal; advises the reviewer to point at a single standalone project or monorepo root"
+  ]
+}

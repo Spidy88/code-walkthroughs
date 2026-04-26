@@ -132,39 +132,34 @@ When review state cannot cleanly migrate (rejected rename, deleted file, orphane
 
 Purging archived state is a manual action: `review.purgeArchived({ olderThan?: Date })`.
 
-## Comparison mode ("new code" review)
+## Comparison mode (PR and AI-code review)
 
-For PR-style review and AI-generated-code review.
+The **full contract** for comparison mode — three-layer surface (Risks, Path Deltas, Indirect Impact), data shapes, alignment strategy, change-type categorization — lives in `13-comparison-flows.md`. This section captures only the parts of comparison mode that intersect with re-analysis and change handling.
 
 ### Setting comparison refs
 
 `analysis.setComparison({ baseRef, headRef })` is called by the UI. The server:
 
 1. Validates both refs exist via `git rev-parse`.
-2. Stores them in session state (persisted in `state.db.session`).
-3. Triggers re-analysis in comparison mode.
+2. Stores them in session state (the active comparison is in-process; persisted refs across restarts can be added later if needed).
+3. Opens or creates `~/.code-walkthrough/codebases/<hash>/comparisons/<base>..<head>/` (see `04-persistence.md`).
+4. Runs the comparison pipeline: per-ref analysis at `baseRef`, per-ref analysis at `headRef`, then the Delta and Risk stage. See `05-analysis-pipeline.md` for the stages and `13-comparison-flows.md` for what they produce.
 
-`analysis.setComparison({ ... }) with null` clears comparison mode.
+`analysis.setComparison(null)` clears comparison mode. The per-comparison directory remains on disk (cheap) so the same comparison can be reopened without re-running.
 
-### What comparison mode changes
+### File reads in comparison mode
 
-- **File tree**: read at both commits via `git ls-tree`. This is where added / modified / renamed / deleted classification comes from — authoritatively, not by scanning the working tree.
-- **Analysis runs against the head snapshot.** The working tree is not read in comparison mode — we use `git show <headRef>:<path>` to read file contents.
-- **Nodes are tagged** with a `change_kind` on `cache.db.path_nodes`:
-  - `new` — function added between base and head.
-  - `modified` — function body differs.
-  - `renamed` — function identity changed (tracked by rename detection).
-  - `unchanged_context` — function unchanged, appears on a path that touches changed code.
-- **Path ordering** switches to "paths touching changed code first, then paths touching only context" — overrides the default ordering in §7.1.1.
-- **Progress** surfaces an additional bucket: "changed-code coverage" — fraction of `new | modified | renamed` nodes that have a current status action.
+The working tree is **not** read in comparison mode. File contents come from `git show <ref>:<path>` for both the base and head per-ref runs. This is what lets comparison mode reproduce historic state without checking out the branch and without disturbing the user's working tree.
 
-### Functions approved in a different context
+### File rename detection
 
-When a previously-approved function now appears on a path that also touches `new` or `modified` code, the UI flags it: "approved elsewhere — review usage here?" This is the path-context awareness hook from spec §8.4. The reviewer can:
+Rename detection between `baseRef` and `headRef` uses `git diff --find-renames` with the default similarity threshold. Confirmed file renames migrate review state via the standard mechanism described in "File renames" above. See `13-comparison-flows.md` for how function-level changes (renames within a file, signature changes, etc.) interact with the comparison surface.
 
-- Accept: no change; status stays global.
-- Re-approve for this path: creates a `path:<id>`-scoped status.
-- Reject for this path: creates a `path:<id>`-scoped rejection.
+### Approvals across the two refs
+
+Approvals are keyed to `node_identity` and `code_hash`, not commit SHA. A node approved during walkthrough mode appears as `reviewed_current` in comparison mode if its head-side `code_hash` matches the approval's `code_hash`. If the head-side body changed, it appears as `reviewed_stale` with prior status in history (per `08-review-state.md`).
+
+A path can also carry a **risk marker** in comparison mode — independent of approval status — when it crosses a contract change. See `08-review-state.md` for the risk-marker semantics.
 
 ### Rebase and comparison
 
@@ -199,5 +194,5 @@ These drive the UI's re-analysis summary panel.
 - **Function rename**: construct two fixtures (before / after), run the rename detector, assert similarity score and carry-forward semantics on confirm.
 - **File rename via git**: construct a git fixture with a rename commit, run comparison mode, assert review state migrates.
 - **Staleness transition**: mutate a fixture's function body, re-analyze, assert node is `reviewed_stale` with history preserved.
-- **Comparison mode correctness**: verify `change_kind` tags match git diff output for a fixture with all four change kinds.
+- **Comparison mode correctness**: see `13-comparison-flows.md` for the full comparison-mode test matrix (signature extraction, contract changes, path-pair alignment, indirect impact, body-kind classification). This file's tests cover only the re-analysis-specific intersections (rebase, ref invalidation, file-rename migration in comparison context).
 - **Orphaned comments**: delete a function, re-analyze, assert comment is archived and surfaced.

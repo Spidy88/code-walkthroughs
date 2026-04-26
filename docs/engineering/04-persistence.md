@@ -20,13 +20,19 @@ All persistent state lives under `~/.code-walkthrough/`.
     └── <codebase-hash>/
         ├── codebase.json              # Pinned metadata: absolute path, first-opened date
         ├── state.db                   # Per-codebase state: review, progress, prep answers
-        └── cache.db                   # Per-codebase cache: analysis, LLM results
+        ├── cache.db                   # Per-codebase cache: analysis, LLM results (working tree)
+        └── comparisons/               # Comparison-mode caches; see 13-comparison-flows.md
+            └── <base>..<head>/
+                ├── base.db            # cache.db schema, populated at baseRef
+                ├── head.db            # cache.db schema, populated at headRef
+                └── delta.db           # ContractChange / PathDelta / IndirectImpactPath
 ```
 
 - **`<codebase-hash>`** is a stable hash of the absolute path. If a user moves the codebase, they re-open from the new path and a new hash is minted. State does not auto-migrate; we may add a "relink" tool later.
 - **`state.db` is precious.** It holds user-generated state. Never auto-purge.
 - **`cache.db` is disposable.** Deleting it triggers re-analysis; no data loss beyond recompute cost.
-- **Two DB files per codebase** is intentional: it lets us nuke the cache without touching review state, and it surfaces the boundary in the file system, not just in code.
+- **Per-comparison DBs are disposable.** Deleting the entire `comparisons/` directory invalidates all comparison sessions; deleting a single `<base>..<head>/` directory invalidates only that comparison.
+- **Two DB files per codebase (plus comparison directories)** is intentional: it lets us nuke any cache without touching review state, and it surfaces the boundary in the file system, not just in code.
 
 ## Drizzle setup
 
@@ -36,6 +42,7 @@ Drizzle ORM with `better-sqlite3`. Each DB file has a dedicated schema module:
 apps/server/src/db/
 ├── user.ts                 # Opens config.db, returns a typed handle
 ├── codebase.ts             # Opens a codebase's state.db + cache.db, returns a pair of handles
+├── comparison.ts           # Opens a comparison's base.db + head.db + delta.db
 ├── schema/
 │   ├── user/
 │   │   ├── config.ts
@@ -47,16 +54,25 @@ apps/server/src/db/
 │   │   ├── prep-answers.ts
 │   │   ├── progress.ts
 │   │   └── history.ts
-│   └── cache/
-│       ├── files.ts
-│       ├── classifications.ts
-│       ├── paths.ts
-│       ├── preambles.ts
-│       └── llm-results.ts
+│   ├── cache/
+│   │   ├── files.ts
+│   │   ├── classifications.ts
+│   │   ├── node-signatures.ts    # Comparison-mode prerequisite; populated for all runs
+│   │   ├── call-edges.ts
+│   │   ├── paths.ts
+│   │   ├── preambles.ts
+│   │   └── llm-results.ts
+│   └── delta/
+│       ├── contract-changes.ts
+│       ├── affected-callers.ts
+│       ├── path-deltas.ts
+│       ├── path-delta-positions.ts
+│       └── indirect-impact-paths.ts
 └── migrations/
     ├── user/
     ├── state/
-    └── cache/
+    ├── cache/
+    └── delta/
 ```
 
 ### Conventions
@@ -204,6 +220,106 @@ Cached counters. Recomputable from `review_status`; kept here so dashboards don'
 
 **`llm_results`** — see `06-llm-integration.md`.
 
+**`node_signatures`**
+
+Populated for every analyzed node. Comparison mode reads this from both ref-specific cache DBs to compute contract changes; walkthrough mode also writes it (cheap during parse), so opening comparison mode on a previously-analyzed codebase does not re-walk the AST.
+
+| Column | Type | Notes |
+|---|---|---|
+| `node_identity` | TEXT PK | |
+| `params` | JSON | `NodeSignatureParam[]` (see `13-comparison-flows.md`) |
+| `return_type` | TEXT NULL | Verbatim from source; null if un-annotated |
+| `exported` | INTEGER | 0/1 |
+| `body_hash` | TEXT | Normalized AST hash of body |
+| `body_kind` | TEXT NULL | `structural` \| `behavioral` \| `cosmetic` \| `unchanged` — filled in during comparison; null in plain walkthrough mode |
+| `content_hash` | TEXT | File content hash at extraction time |
+| `updated_at` | TEXT | |
+
+**`call_edges`**
+
+Per-file call edges, persisted so the comparison stage can enumerate callers without reparsing.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | ULID |
+| `caller_node_identity` | TEXT | |
+| `callee_node_identity` | TEXT NULL | Null when unresolved |
+| `unresolved_hint` | TEXT NULL | `indirect` \| `cross-file-or-external` \| `handler-attached` |
+| `call_site_line` | INTEGER | |
+| `call_site_column` | INTEGER | |
+| `arg_count` | INTEGER | Used by Stage 3 to determine `callPassesArgument` |
+
+Indexed on `caller_node_identity` and `callee_node_identity`.
+
+### Per-comparison delta (`comparisons/<base>..<head>/delta.db`)
+
+Populated by the Delta and Risk stage (`13-comparison-flows.md`). Disposable: deleting `delta.db` re-runs only Stage 3, leaving `base.db` and `head.db` intact.
+
+**`contract_changes`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | ULID, stable across re-runs of the same comparison |
+| `node_identity` | TEXT | |
+| `kind` | TEXT | See `ContractChange.kind` enum in `13-comparison-flows.md` |
+| `base_signature` | JSON NULL | Snapshot of the base `NodeSignature`; null on `export_added` |
+| `head_signature` | JSON NULL | Snapshot of the head `NodeSignature`; null on `export_removed` |
+| `summary` | TEXT NULL | Optional LLM-generated; null when LLM disabled |
+| `created_at` | TEXT | |
+
+**`affected_callers`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | ULID |
+| `contract_change_id` | TEXT | FK → `contract_changes.id` |
+| `caller_node_identity` | TEXT | |
+| `call_site_line` | INTEGER | |
+| `call_site_column` | INTEGER | |
+| `caller_on_changed_path` | INTEGER | 0/1 |
+| `caller_on_any_walked_path` | INTEGER | 0/1 |
+| `call_passes_argument` | INTEGER NULL | 0/1, only set for `param_default_removed` and `param_added_required` |
+
+Indexed on `contract_change_id`.
+
+**`path_deltas`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | ULID |
+| `base_path_id` | TEXT NULL | Null when `net_new` |
+| `head_path_id` | TEXT NULL | Null when `net_gone` |
+| `classification` | TEXT | `net_new` \| `net_gone` \| `restructured` \| `modified_in_place` \| `unchanged` |
+| `entry_point_key` | TEXT | Stable across runs: framework + kind + route |
+| `summary` | TEXT NULL | Optional LLM-generated; null when LLM disabled |
+
+Indexed on `entry_point_key` for fast pairing during regeneration.
+
+**`path_delta_positions`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | |
+| `path_delta_id` | TEXT | FK → `path_deltas.id` |
+| `base_position` | INTEGER NULL | |
+| `head_position` | INTEGER NULL | |
+| `base_node_identity` | TEXT NULL | |
+| `head_node_identity` | TEXT NULL | |
+| `change_kind` | TEXT | `unchanged` \| `body_changed` \| `added` \| `removed` \| `replaced` |
+| `body_kind` | TEXT NULL | When `change_kind = body_changed` or `unchanged`: `behavioral` \| `cosmetic` \| `unchanged` |
+
+Indexed on `path_delta_id`.
+
+**`indirect_impact_paths`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | |
+| `head_path_id` | TEXT | |
+| `contract_change_ids` | JSON | Array of `contract_changes.id` strings |
+
+Indexed on `head_path_id`.
+
 ## Content hashing
 
 - **File content hash**: SHA-256 of the raw bytes. Used to detect function body changes, cache invalidation, and review staleness.
@@ -224,6 +340,9 @@ Hashing utilities live in `apps/server/src/util/hash.ts`.
 
 - **Reset codebase**: delete `~/.code-walkthrough/codebases/<hash>/state.db`. Reopen.
 - **Reset analysis cache**: delete `cache.db`. Next analysis recomputes.
+- **Reset all comparisons**: delete the `comparisons/` directory under the codebase folder.
+- **Reset a single comparison**: delete the matching `comparisons/<base>..<head>/` directory; the next request re-runs both ref analyses and Stage 3.
+- **Reset only a comparison's delta layer**: delete only `delta.db` inside the comparison directory; the ref analyses (`base.db` / `head.db`) are reused.
 - **Reset progress only**: run `progress:reset` procedure — see `07-api-surface.md`.
 - **Reset per-project, per-path, per-file**: scoped reset procedures, same place.
 

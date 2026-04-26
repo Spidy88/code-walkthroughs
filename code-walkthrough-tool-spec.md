@@ -1,10 +1,21 @@
-# Code Walkthrough Tool — Product Specification
+# Code Walkthroughs — Product Specification
 
 ## 1. Purpose
 
 A local tool that ingests a codebase, analyzes it deterministically, and guides a reviewer through the code along meaningful paths (e.g., an HTTP request from handler to service to external client; a frontend route from its route definition to rendered components). Designed to make unfamiliar codebases approachable, to make large pull requests reviewable without holding the whole system in your head, and to provide a structured review surface for both human-written code and AI-generated code.
 
 The tool is explicitly biased toward deterministic analysis where accuracy matters (parsing, symbol resolution, call graphs), and uses LLMs only where determinism breaks down (ambiguous classification, dynamic dispatch resolution, semantic rule checks).
+
+### Two jobs, one primitive
+
+The tool serves two related but fundamentally different jobs that share the **path** as their core primitive:
+
+- **Walkthrough mode** explains a system as it currently exists. The reviewer is building a mental model: which code earns its place, how requests flow, what each piece does. Output is a guided walk along paths through the codebase.
+- **Comparison mode** interrogates a change between two commits. The reviewer is evaluating a delta — typically a PR or AI-generated change. Output is a three-layer surface (Risks, Path Deltas, Indirect Impact) showing what changed, what it propagates to, and what's at risk that isn't otherwise obvious.
+
+These modes share path detection, classification, and the review action surface. They differ in what the reviewer is asking for and what failure modes the tool defends against. Walkthrough mode answers "how does this work?" Comparison mode answers "what does this change touch, and where could it slip?"
+
+In both modes, the system's job is **identification and navigation, not judgment**. The tool surfaces structural facts (paths, signatures, contract changes, affected callers) so the reviewer's attention lands on what's load-bearing. The tool never blocks merges, assigns severity, or claims a change is correct or incorrect.
 
 ## 2. Scope
 
@@ -244,6 +255,8 @@ Multiple free-form comments can exist on the same node or file. They accumulate.
 
 This model addresses the "function reused in a context it wasn't designed for" concern through visibility (reuse is always shown) rather than enforcement (re-approval required), with explicit path scoping available when a reviewer wants stricter handling on a specific function.
 
+**Comparison mode adds a distinct, complementary mechanism.** When evaluating a delta (§11.4), a path that didn't change directly but now crosses a contract change is surfaced via a **risk marker**, not by invalidating the approval or path-scoping it. Risk markers are derived from the active comparison, transient (they exist only while the comparison is open), and never gate. They answer the question "did this PR's changes propagate into a path I previously approved?" — which is adjacent to but separate from "is this function being reused in a context it wasn't designed for?" Path-scoping is the persistent, reviewer-driven mechanism for the latter. Risk markers are the comparison-driven signal for the former. Both can apply to the same path simultaneously without conflict.
+
 ## 9. Checklists and Rules
 
 ### 9.1 Classification-Driven Checklists
@@ -328,19 +341,55 @@ In that case, git's built-in rename detection is used read-only to map old paths
 
 Without git or without commit refs, moved files are treated as "old deleted, new added." The reviewer resolves via the prep pass if they want to transfer state manually.
 
-### 11.4 "New Code" Comparison Mode
+### 11.4 Comparison Mode (PR and AI-Code Review)
 
-For PR-style review — including review of AI-generated changes, which is the same feature with a different origin — the reviewer provides two commit refs: **base** and **head**. The tool:
+For PR-style review — including review of AI-generated changes, which is the same feature with a different origin — the reviewer provides two commit refs: **base** and **head**. The tool runs full analysis at each ref and produces a comparison surface organized into **three layers**, each addressing a failure mode that file-diff-only review cannot.
 
-1. Reads the file tree at each commit (read-only, no history walk).
-2. Computes added, modified, renamed, and deleted files between them.
-3. Marks functions as **new**, **modified**, **renamed** (with source), or **unchanged context** in walkthroughs.
-4. Runs paths across the head snapshot, with modified-since-approval indicators on functions the reviewer previously approved in a different context.
-5. Allows the reviewer to re-review previously-approved functions that now appear in a new usage (ties into path-context awareness, §8).
+#### Layer 1 — Risks (cross-cutting contract changes)
 
-Reviewers are asked to avoid rebasing reviewed branches. Approvals are keyed to function identity, not commit SHA, so rebase does not destroy approvals — but it does invalidate previously-selected comparison refs. Users who rebase simply pick new refs. Rebase-safe migration of the comparison range itself is deferred.
+Structural changes that propagate to callers and importers regardless of which path traverses them:
 
-Without commit refs, the tool operates on a flat snapshot with no new-vs-context distinction.
+- Removed default values, added required parameters, narrowed types.
+- Removed exports still referenced elsewhere.
+- Changed return types, changed exported-ness.
+
+For each contract change, the tool enumerates affected callers and cross-references them against path membership: which callers are on paths the PR otherwise touches, which are on previously-unchanged paths now silently at risk, which are not on any walked path at all.
+
+This layer catches the "I changed `validateRequest`'s signature and forgot to update three of seven callers" class of slip — the kind a path-only or diff-only review can miss.
+
+#### Layer 2 — Path deltas
+
+Per-path comparison between the base and head analysis runs. Each path-pair receives a classification:
+
+- **`net_new`** — entry point exists at head but not at base. Treated as a fresh walkthrough.
+- **`net_gone`** — entry point exists at base but not at head. Surfaced for review with the base path content.
+- **`restructured`** — same entry point, but the route through the call graph changed shape.
+- **`modified_in_place`** — same entry point, same node sequence, but at least one node's body changed.
+- **`unchanged`** — both runs produce identical paths. Counted prominently as the "calming count."
+
+Within each affected path, individual positions carry a `change_kind` (`unchanged`, `body_changed`, `added`, `removed`, `replaced`). Diff hunks render inline at modified positions during the walkthrough — there is no separate Files Changed view to context-switch to.
+
+#### Layer 3 — Indirect impact
+
+Paths that didn't change directly (`unchanged` at the path-delta level) but cross a node whose contract changed in this PR. These are surfaced as a sub-bucket of "unchanged" so the calming count never lies — "127 of 134 paths unchanged, but 6 cross a changed contract."
+
+#### Change-type categorization
+
+Changes to a node body are categorized deterministically (AST-level) so reviewer attention scales with risk:
+
+- **Structural** — signature or exported-ness changed. Surfaces in Layer 1 regardless of path membership.
+- **Behavioral** — body AST changed in ways that affect executable structure. Surfaces in Layer 2 at the position of the change.
+- **Cosmetic** — diff is whitespace, comments, or only adds/removes log/debugger calls. Filtered into a low-signal bucket, hidden by default.
+
+A 200-line PR that's 180 lines of added logging does not consume the same review attention as a 20-line signature change. The categorization is the system's responsibility; the *judgment* of whether each change is correct stays with the reviewer.
+
+#### Other comparison-mode behavior
+
+- File renames between the two refs use git's built-in rename detection (§11.3) so review state migrates cleanly.
+- Approvals are keyed to function identity and content hash, not commit SHA. Rebasing the reviewed branch does not destroy approvals — but it does invalidate the comparison refs, and the reviewer is prompted to pick new refs. Rebase-safe migration of the comparison range itself is deferred.
+- Without commit refs, the tool operates in walkthrough mode on the working tree. There is no comparison-mode UI without two refs.
+
+Implementation specifics — alignment strategy, signature extraction, persistence, and the procedural API — live in the engineering doc set (`docs/engineering/13-comparison-flows.md`).
 
 ## 12. Reviewer Identity
 
@@ -443,5 +492,5 @@ Quick map of where features interact (for fast orientation):
 - **Reviewed-function reuse** (§7.2) and **path-context awareness** (§8.4) share the same mechanism: visibility of prior reviews with Skip / Re-examine, not mandatory re-review.
 - **Progress tracking** (§10) distinguishes four node states including "reviewed but stale" per §11.1.
 - **Re-analysis** (§11) preserves review history across **function changes** (§11.1, which revert status to pending), **function renames** (§11.2), and, with git, **file renames** (§11.3).
-- **"New code" comparison** (§11.4) is the same feature set as normal walkthrough, with new-vs-context markers overlaid; this is what makes PR review and AI-code review the same flow with different inputs.
+- **Comparison mode** (§11.4) shares the path primitive with walkthrough mode but produces a different surface: three layers (Risks, Path Deltas, Indirect Impact) plus deterministic change-type categorization (structural/behavioral/cosmetic). PR review and AI-code review are the same flow with different inputs; both differ from walkthrough mode in the questions they answer, not the underlying analysis.
 - **LLM usage** (§15) is opt-in and layered on top of deterministic analysis — disabling it degrades quality (no Stage 0 pass, no Stage 2 classification, no LLM path inference, no path categorization, no LLM rules) but does not break any core feature.

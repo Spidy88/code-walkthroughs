@@ -12,7 +12,7 @@ Package-by-package layout (see `02-project-structure.md`), API signatures (see `
 
 1. **Deterministic where accuracy matters, LLM where determinism breaks down.** Parsing, symbol resolution, and call graphs are AST-driven. LLMs classify ambiguous files, resolve dynamic dispatch, pre-generate prep suggestions, and evaluate LLM rules. Never the reverse.
 2. **Local, single-user, file-based.** No network services, no background daemons, no multi-tenant concerns. State lives on disk in a predictable location.
-3. **One codebase active per running instance.** Codebases can be swapped at runtime via an explicit action. No cross-codebase queries, no multi-codebase joins.
+3. **One codebase active per running instance.** Codebases can be swapped at runtime via an explicit action. No cross-codebase queries, no multi-codebase joins. A codebase may also have **one active comparison** at a time — two commit refs producing a parallel pair of analyses with a delta surface on top (see `13-comparison-flows.md`).
 4. **Degradation is explicit.** LLM-off, missing-cache, and partial-analysis states are first-class in the UI. The reviewer always knows what they're seeing.
 5. **Cancellable pipelines from day one.** Any analysis or LLM call must be interruptible. This supports re-analyze, codebase-switch, and user-initiated abort.
 6. **Claude is the source of truth for how to extend this.** These docs are written to be read by Claude. Patterns are uniform and named so that "add a new X" has one correct shape.
@@ -106,6 +106,7 @@ These are the seams where the architecture intentionally refuses to couple thing
 
 - **One codebase active at a time** per server process.
 - **One analysis in flight at a time** per codebase. Triggering re-analysis while one is running cancels the in-flight run and starts a new one.
+- **One active comparison at a time** per codebase. Comparison mode runs two per-ref analyses (against `baseRef` and `headRef`) into separate cache DBs, then a Delta and Risk stage. Setting a new comparison cancels the in-flight one. See `13-comparison-flows.md`.
 - **LLM calls run in a bounded concurrency pool** (default: 4). Configurable. See `06-llm-integration.md`.
 - **All long-running work is cancellable via `AbortSignal`.** Cancellation is propagated into the analyzer, LLM client, and git wrapper.
 

@@ -24,6 +24,7 @@ apps/server/src/router/
 ├── codebase.ts       # Codebase lifecycle (open, close, info, switch)
 ├── analysis.ts       # Analysis control + progress subscription
 ├── walkthrough.ts    # Path navigation, node fetching, dig-into
+├── comparison.ts     # Comparison-mode queries (see 13-comparison-flows.md)
 ├── review.ts         # Status actions, comments, history
 ├── rules.ts          # Rule CRUD (user + project scope)
 ├── prep.ts           # Prep questions and answers
@@ -55,6 +56,7 @@ export type ScopedContext = BaseContext & {
 - **`baseProcedure`** — no guards; runs every procedure.
 - **`scopedProcedure`** — asserts an active codebase is attached to the session; throws `TRPCError({ code: 'PRECONDITION_FAILED' })` if not.
 - **`writeProcedure`** — extends `scopedProcedure`; wraps the handler in a transaction on `state.db`.
+- **`comparisonProcedure`** — extends `scopedProcedure`; additionally asserts an active comparison `(baseRef, headRef)` is attached to the session and that the per-comparison DBs (`base.db`, `head.db`, `delta.db`) are open. Throws `TRPCError({ code: 'PRECONDITION_FAILED' })` if no comparison is active. Used for everything under `comparison.*`.
 
 No custom auth middleware in v1 (single-user, local). The reviewer ID is attached by `baseProcedure` from session config and is always present.
 
@@ -120,7 +122,8 @@ Known translations live in `apps/server/src/router/errors.ts` as a single table,
 | `analysis.cancel` | mutation | Aborts in-flight analysis |
 | `analysis.getStatus` | query | `{ stage, progress, lastRunAt, lastError }` |
 | `analysis.onEvent` | subscription | Streams `AnalysisEvent` (see `05-analysis-pipeline.md`) |
-| `analysis.setComparison` | mutation | `{ baseRef, headRef } | null` — sets commit-range comparison (see `09-reanalysis.md`) |
+| `analysis.setComparison` | mutation | `{ baseRef, headRef } \| null` — opens or clears comparison mode. Validates refs, opens or creates `comparisons/<base>..<head>/`, kicks off the two per-ref analyses + Delta and Risk stage. See `13-comparison-flows.md`. |
+| `analysis.getComparisonStatus` | query | `{ baseRef, headRef, stage, progress }` for the active comparison; null if none |
 
 ## Walkthrough procedures (`walkthrough.*`)
 
@@ -133,6 +136,24 @@ Known translations live in `apps/server/src/router/errors.ts` as a single table,
 | `walkthrough.getNode` | query | Full node payload: code, classification, checklist, review state, downstream calls |
 | `walkthrough.getPreamble` | query | `{ entryPointId }` |
 | `walkthrough.listSyntheticWalkthroughs` | query | Non-path sequences |
+
+## Comparison procedures (`comparison.*`)
+
+All `comparison.*` procedures require an active comparison via `comparisonProcedure` middleware. They read from the per-comparison `base.db`, `head.db`, and `delta.db`. See `13-comparison-flows.md` for the data shapes and `04-persistence.md` for storage layout.
+
+| Procedure | Kind | Purpose |
+|---|---|---|
+| `comparison.getSummary` | query | Top-level counts: contract changes, path-delta classifications, indirect impact, file-level categorization |
+| `comparison.listRisks` | query | All `ContractChange` records with affected callers nested. Optional filter by kind |
+| `comparison.getContractChange` | query | `{ id }` — single contract change with full caller list and base/head signatures |
+| `comparison.listPathDeltas` | query | `{ classification?: PathDeltaClassification[] }` — path-pair summaries |
+| `comparison.getPathComparison` | query | `{ pathDeltaId }` — paired walkthrough payload: base path, head path, position-level alignment, inline diff hunks |
+| `comparison.listIndirectImpact` | query | Paths classified `unchanged` that cross a `ContractChange` |
+| `comparison.listAffectedCallers` | query | `{ contractChangeId }` — flat caller list (also nested under `listRisks`; this is for direct queries) |
+| `comparison.listFileChanges` | query | File-level categorization (`structural` \| `behavioral` \| `cosmetic` \| `added` \| `deleted` \| `renamed`) |
+| `comparison.listCosmeticChanges` | query | Opt-in surface for the low-signal bucket |
+
+Comparison-mode walkthrough rendering reuses `walkthrough.getNode` for individual nodes (the per-ref cache is the source of truth) and overlays change annotations from `delta.db`.
 
 ## Review procedures (`review.*`)
 

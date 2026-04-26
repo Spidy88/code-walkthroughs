@@ -1,0 +1,56 @@
+{
+  "flow_name": "New Code Comparison Review",
+  "description": "The PR / AI-code audit flow: reviewer supplies two commit refs, the tool computes what changed between them, and walkthroughs run across the head snapshot with new/modified/renamed markers driving review attention.",
+  "trigger": "Reviewer opens a previously-ingested codebase and chooses 'review changes' or supplies commit refs at ingestion time",
+  "persona": "The AI-Code Auditor",
+  "steps": [
+    {
+      "step": 1,
+      "screen": "comparison_setup",
+      "user_action": "Supplies two commit refs: base (the point of comparison) and head (the state to review). Confirms the comparison is what they intended.",
+      "system_response": "Reads the file tree at each commit (read-only, no history walk). Computes added, modified, renamed, and deleted files between them. Invokes git's rename detection for file-level renames. Marks functions as new / modified / renamed (with source) / unchanged context. Re-runs path construction across the head snapshot.",
+      "next_screen": "comparison_overview",
+      "notes": "Reviewers are asked to avoid rebasing reviewed branches. Approvals are keyed to function identity, not commit SHA, so rebase does not destroy approvals — but it does invalidate the comparison refs. Rebased? Pick new refs."
+    },
+    {
+      "step": 2,
+      "screen": "comparison_overview",
+      "user_action": "Scans the change summary: counts of new / modified / renamed / deleted functions and files, the paths that touch changed code, and any functions that were previously approved but are now modified-since-approval.",
+      "system_response": "Default path ordering switches to 'paths touching changed code first, then paths touching context.' Path list highlights paths with changed nodes and shows modified-since-approval counts per path.",
+      "next_screen": "path_list",
+      "notes": "Renamed functions carry approval / comments / history forward when the reviewer has confirmed the rename in the prep pass. File renames carry state via git's rename detection when the codebase is a git repo."
+    },
+    {
+      "step": 3,
+      "screen": "walkthrough_node",
+      "user_action": "Walks a path. At each node, attends to the change marker — new / modified / renamed / unchanged context — and takes status actions accordingly.",
+      "system_response": "Nodes display their change marker prominently. Modified nodes show a diff between the previously-reviewed version and the current version. Previously-approved-but-modified nodes appear in the reviewed-stale state (prior status preserved in history, current status pending).",
+      "next_screen": "walkthrough_node",
+      "notes": "Nothing is auto-approved on re-analysis. The stale state is explicit — reviewer must take a new action to move it back to reviewed-current."
+    },
+    {
+      "step": 4,
+      "screen": "walkthrough_node",
+      "user_action": "For functions that are unchanged but now appear in a new usage (a modified caller calls an old callee), the reviewer can re-review via Re-examine from the dig-into affordance, optionally applying path-scoped approval.",
+      "system_response": "Ties into path-context awareness: the prior global approval is shown, Skip (default) / Re-examine is offered, and any new action can be scoped globally or to the path.",
+      "next_screen": "walkthrough_node",
+      "notes": "Addresses the 'function reused in a context it wasn't designed for' concern through visibility, not enforcement. The reviewer chooses when to enforce stricter scoping."
+    },
+    {
+      "step": 5,
+      "screen": "progress_dashboard",
+      "user_action": "Checks progress: change coverage (fraction of changed functions with an action), composition (approve / reject / info breakdown), and any outstanding info requests awaiting author response",
+      "system_response": "Shows both path coverage and full coverage flavors, scoped to changed nodes for the comparison. Reviewer can reset progress at codebase / project / path / file level if they want to restart the review.",
+      "next_screen": "path_list",
+      "notes": "In PR mode, change coverage is the load-bearing metric — reaching 100% on changed functions is the natural 'done' for a PR review, though completeness is still reviewer-defined."
+    }
+  ],
+  "success_state": "Every changed function has a current status action, comments annotate the nuanced cases, and the reviewer can defend the completeness of their audit from the progress dashboard",
+  "error_states": [
+    "Supplied commit ref doesn't exist → show a clear error at ref entry; suggest the reviewer check the ref with git directly",
+    "Base and head are identical → surface 'no changes between these refs' and drop back to flat-snapshot mode",
+    "Codebase is not a git repository → file rename detection is unavailable; moved files are treated as old-deleted / new-added, with a note and a prompt to resolve via the prep pass",
+    "Reviewer rebased the branch after selecting refs → prior refs may be invalid; surface 'base ref no longer exists' and prompt for new refs; existing approvals (keyed to function identity) are preserved",
+    "Very large change range (hundreds of changed files) → stream paths into the overview as they materialize; do not block the reviewer behind full materialization"
+  ]
+}

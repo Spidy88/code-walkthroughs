@@ -1,0 +1,55 @@
+{
+  "flow_name": "File Browser Review",
+  "description": "The fallback review surface for code that doesn't fit a path — configs, scripts, seeds, setup — and for reviewers who prefer free browsing or spot-checking. All review actions apply, always at global scope.",
+  "trigger": "Reviewer selects 'browse files' from the project overview or opens a file directly from a cross-reference (e.g., a 'view full file' expand from a walkthrough)",
+  "persona": "The New Joiner",
+  "steps": [
+    {
+      "step": 1,
+      "screen": "file_browser",
+      "user_action": "Navigates the project tree: expands folders, reads file names, sees per-file review state badges (never reviewed / reviewed-current / reviewed-stale / pending info) and classifications",
+      "system_response": "Shows the project tree with classification badges and status indicators per file. Synthetic walkthroughs (e.g., 'build configuration,' 'seed data,' 'framework bootstrapping') are also available as an alternative grouped view.",
+      "next_screen": "file_view",
+      "notes": "The browser is scoped to one project at a time. Cross-project navigation goes through the project overview."
+    },
+    {
+      "step": 2,
+      "screen": "file_view",
+      "user_action": "Opens a file and reads it holistically. Optionally expands function-level sections for focused review. Optionally follows cross-references to imported files.",
+      "system_response": "Shows the full file with syntax highlighting, the file's classification, any file-level rule evaluations, and per-function status indicators. All review actions apply (status actions, free-form comments) at file level or function level.",
+      "next_screen": "file_view",
+      "notes": "Unlike walkthrough mode, unrelated functions are all visible — this is the whole point of the file browser as an alternative surface."
+    },
+    {
+      "step": 3,
+      "screen": "file_view",
+      "user_action": "Takes a file-level status action (Approve / Reject / Request Info), optionally with a comment",
+      "system_response": "If no function in the file has a prior function-level status, the action cascades to every function in the file. If any function has a conflicting function-level status, prompts with three choices: Preserve function statuses (default, highlighted — apply file action only to functions without existing status), Override (clear function-level statuses and apply file action to every function), or Cancel.",
+      "next_screen": "file_view_or_conflict_modal",
+      "notes": "Function-level actions never propagate upward to the file. Outside walkthroughs, all status actions are global — no path-scoping is available here."
+    },
+    {
+      "step": 4,
+      "screen": "file_view",
+      "user_action": "Takes function-level actions on specific functions within the file, or leaves free-form comments (line-range, function-level, file-level)",
+      "system_response": "Function-level actions override any cascaded file-level status for that specific function. Comments accumulate and persist across status changes.",
+      "next_screen": "file_view",
+      "notes": "Line-range comments follow GitHub PR line-comment style. Multiple comments can exist at any level."
+    },
+    {
+      "step": 5,
+      "screen": "file_browser",
+      "user_action": "Navigates to the next file of interest, or returns to the project overview, or initiates a synthetic walkthrough to be guided through a group of related non-path files",
+      "system_response": "Updates progress displays to reflect new actions. Synthetic walkthroughs sequence the curated files one at a time with prev/next navigation, so the reviewer has a complete coverage plan including non-path code.",
+      "next_screen": "file_browser_or_walkthrough_node",
+      "notes": "Synthetic walkthroughs appear alongside detected paths in the path list — they are first-class, not hidden."
+    }
+  ],
+  "success_state": "Reviewer has reviewed the files they wanted to touch holistically, with status actions and comments recorded at the appropriate granularity, and can see remaining coverage on other files from the browser",
+  "error_states": [
+    "File is in an unsupported-language project → open read-only with syntax highlighting if available, but no review actions; file is marked not-walkable in progress",
+    "File is very large (thousands of lines) → virtualize rendering; keep per-function status indicators visible in a sidebar so the reviewer can navigate without scrolling the whole file",
+    "Reviewer takes a file-level action on a file where all functions already have conflicting statuses and chooses Override → confirm destructively since this clears multiple prior actions; prior actions are preserved in history",
+    "Reviewer opens a file via a cross-reference from a walkthrough and is unsure whether they're still 'in' the walkthrough → show a clear context banner ('viewing from walkthrough: [path name]') with a button to return"
+  ]
+}

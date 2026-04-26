@@ -1,10 +1,16 @@
-# Engineering Documentation — Code Walkthrough Tool
+# Engineering Documentation — Code Walkthroughs
 
-This directory is the source of truth for **how** the Code Walkthrough Tool is built. The product specification (`code-walkthrough-tool-spec.md`) is the source of truth for **what** we're building.
+This directory is the source of truth for **how** Code Walkthroughs is built. It sits alongside two other authoritative docs:
 
-When the two documents conflict:
-- If the conflict is about product behavior, the product spec wins. Update these docs to match.
-- If the conflict is about implementation mechanics, these docs win.
+- **Product spec** (`/code-walkthrough-tool-spec.md`) — *what* we're building. Authoritative on behavior and scope.
+- **Design spec** (`/docs/design/spec.md`) — *what it looks and feels like*, sitemap, user flows, surface model.
+
+When these documents conflict:
+- Product behavior questions: product spec wins.
+- Visual / surface / flow questions: design spec wins.
+- Implementation mechanics: these engineering docs win.
+
+A change to one that affects another must update both in the same PR.
 
 ## Who this is for
 
@@ -32,10 +38,12 @@ Every document here is written to be opened cold. You should not need to read th
 | [06-llm-integration.md](./06-llm-integration.md) | Claude client, prompt cache, per-pipeline prompts, degradation contract |
 | [07-api-surface.md](./07-api-surface.md) | tRPC router layout, procedure conventions, active-codebase context |
 | [08-review-state.md](./08-review-state.md) | Node status state machine, cascade rules, path-context scoping |
-| [09-reanalysis.md](./09-reanalysis.md) | Diffing, rename detection, stale-status transitions, comparison mode |
+| [09-reanalysis.md](./09-reanalysis.md) | Diffing, rename detection, stale-status transitions, comparison-ref handling |
 | [10-testing.md](./10-testing.md) | Vitest, Playwright, Storybook; fixtures; test layout |
 | [11-development-workflow.md](./11-development-workflow.md) | Scripts, dev loop, debugging, how to add an adapter/rule/classification |
 | [12-frontend.md](./12-frontend.md) | Frontend architecture (stub — fleshed out after designs land) |
+| [13-comparison-flows.md](./13-comparison-flows.md) | Two-commit comparison: Risks, Path Deltas, Indirect Impact; signature diff and alignment |
+| [14-design-system.md](./14-design-system.md) | Blueprint Draft visual language, design tokens, component patterns, Storybook conventions |
 
 ## Keeping this doc set accurate
 
