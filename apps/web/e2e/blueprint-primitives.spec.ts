@@ -7,27 +7,31 @@ test.describe('Blueprint Tier-0 primitives', () => {
   });
 
   test('renders the title block with drafting labels', async ({ page }) => {
-    // Arrange — page already navigated in beforeEach.
-    // Act — locate the title block via its drawing label.
     const titleDrawingLabel = page.getByText('DRAWING · CODE_WALKTHROUGHS');
-    // Assert
     await expect(titleDrawingLabel).toBeVisible();
     await expect(page.getByText('Walk the path, not the diff.')).toBeVisible();
   });
 
-  test('renders chips for every state-style variant', async ({ page }) => {
-    for (const label of ['APPROVED', 'REJECTED', 'INFO REQUESTED', 'NEVER REVIEWED']) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
-    }
-    for (const label of ['NEW', 'MODIFIED', 'STALE']) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
-    }
-    for (const label of ['CONTRACT CHANGE', 'INDIRECT IMPACT', 'COSMETIC']) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
+  test('renders all chip-state variants in the primitives showcase', async ({ page }) => {
+    const showcase = page.locator('section', { hasText: '§ C · BLUEPRINT PRIMITIVES (TIER-0)' });
+    for (const label of [
+      'APPROVED',
+      'REJECTED',
+      'INFO REQUESTED',
+      'NEVER REVIEWED',
+      'NEW',
+      'MODIFIED',
+      'STALE',
+      'CONTRACT CHANGE',
+      'INDIRECT IMPACT',
+      'COSMETIC',
+    ]) {
+      await expect(showcase.getByText(label, { exact: true }).first()).toBeVisible();
     }
   });
 
-  test('renders chips for every classification variant', async ({ page }) => {
+  test('renders all classification chip variants in the primitives showcase', async ({ page }) => {
+    const showcase = page.locator('section', { hasText: '§ C · BLUEPRINT PRIMITIVES (TIER-0)' });
     for (const label of [
       'ROUTE HANDLER',
       'SERVICE',
@@ -46,17 +50,11 @@ test.describe('Blueprint Tier-0 primitives', () => {
       'TYPE ONLY',
       'UNCLASSIFIED',
     ]) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      await expect(showcase.getByText(label, { exact: true }).first()).toBeVisible();
     }
   });
 
-  test('renders corner ticks on the showcase panels', async ({ page }) => {
-    await expect(page.getByText('FIG. D · PRIMARY TICKS')).toBeVisible();
-    await expect(page.getByText('FIG. E · NEUTRAL TICKS')).toBeVisible();
-  });
-
   test('captures full-page screenshot of the primitives showcase', async ({ page }) => {
-    // Wait for fonts to settle so the screenshot is consistent
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({
       path: 'test-results/screenshots/blueprint-primitives-full.png',

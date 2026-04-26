@@ -2,8 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Chip,
   type ChipVariant,
-  CornerTicks,
   DraftingLabel,
+  LineGutterBlock,
+  Panel,
+  PanelBody,
+  PanelFooter,
+  PanelHeader,
+  PathBreadcrumb,
+  TitleBlock,
 } from './components/blueprint/index.ts';
 import { trpcClient } from './trpc.ts';
 
@@ -19,8 +25,17 @@ export function App() {
 
   return (
     <main className="dot-grid min-h-screen p-8">
-      <div className="mx-auto max-w-[1280px]">
-        <TitleBlock />
+      <div className="mx-auto max-w-[1280px] space-y-8">
+        <TitleBlock
+          drawingLabel="DRAWING · CODE_WALKTHROUGHS"
+          title="Code Walkthroughs"
+          tagline="Walk the path, not the diff."
+          cells={[
+            { label: 'DEV', value: 'local' },
+            { label: 'REV', value: 'chunk-1C' },
+            { label: 'SHEET', value: '01 / 22' },
+          ]}
+        />
         <ServerStatusSection
           status={status.data ?? null}
           isLoading={status.isLoading}
@@ -31,43 +46,11 @@ export function App() {
           isLoading={recent.isLoading}
           error={recent.error}
         />
-        <ComponentShowcase />
+        <PrimitivesShowcase />
+        <SurfacesShowcase />
+        <KitchenSink />
       </div>
     </main>
-  );
-}
-
-function TitleBlock() {
-  return (
-    <div
-      className="mb-8 grid border bg-surface"
-      style={{
-        borderColor: 'var(--color-primary)',
-        gridTemplateColumns: '1fr 160px 160px 160px',
-      }}
-    >
-      <div className="border-r border-border px-4 py-3">
-        <DraftingLabel size="sm" tone="tertiary">
-          DRAWING · CODE_WALKTHROUGHS
-        </DraftingLabel>
-        <div className="mt-1 text-2xl font-bold leading-tight tracking-tight text-text-primary">
-          Code Walkthroughs
-        </div>
-        <div className="mt-1 text-sm text-text-secondary">Walk the path, not the diff.</div>
-      </div>
-      <TitleBlockCell label="DEV" value="local" />
-      <TitleBlockCell label="REV" value="chunk-1B" />
-      <TitleBlockCell label="SHEET" value="01 / 22" />
-    </div>
-  );
-}
-
-function TitleBlockCell(props: { label: string; value: string }) {
-  return (
-    <div className="border-r border-border px-3 py-2.5 last:border-r-0">
-      <DraftingLabel size="xs">{props.label}</DraftingLabel>
-      <div className="mt-1 text-xs text-text-primary">{props.value}</div>
-    </div>
   );
 }
 
@@ -77,28 +60,30 @@ function ServerStatusSection(props: {
   error: unknown;
 }) {
   return (
-    <section className="mb-8">
+    <section>
       <DraftingLabel size="sm" weight="bold" className="mb-2 block">
         § A · SERVER STATUS
       </DraftingLabel>
-      <div className="border border-border-strong bg-surface p-4">
-        {props.isLoading ? (
-          <div className="text-sm text-text-secondary">Loading…</div>
-        ) : props.error ? (
-          <div className="text-sm text-error">Failed to reach server: {String(props.error)}</div>
-        ) : (
-          <dl className="grid grid-cols-[160px_1fr] gap-y-2 text-sm">
-            <dt className="self-center font-mono text-xs uppercase tracking-wider text-text-tertiary">
-              LLM ENABLED
-            </dt>
-            <dd className="text-text-primary">{props.status?.llmEnabled ? 'yes' : 'no'}</dd>
-            <dt className="self-center font-mono text-xs uppercase tracking-wider text-text-tertiary">
-              ACTIVE CODEBASE
-            </dt>
-            <dd className="text-text-primary">{props.status?.active?.absolutePath ?? 'none'}</dd>
-          </dl>
-        )}
-      </div>
+      <Panel>
+        <PanelBody>
+          {props.isLoading ? (
+            <div className="text-sm text-text-secondary">Loading…</div>
+          ) : props.error ? (
+            <div className="text-sm text-error">Failed to reach server: {String(props.error)}</div>
+          ) : (
+            <dl className="grid grid-cols-[160px_1fr] gap-y-2 text-sm">
+              <dt className="self-center font-mono text-xs uppercase tracking-wider text-text-tertiary">
+                LLM ENABLED
+              </dt>
+              <dd className="text-text-primary">{props.status?.llmEnabled ? 'yes' : 'no'}</dd>
+              <dt className="self-center font-mono text-xs uppercase tracking-wider text-text-tertiary">
+                ACTIVE CODEBASE
+              </dt>
+              <dd className="text-text-primary">{props.status?.active?.absolutePath ?? 'none'}</dd>
+            </dl>
+          )}
+        </PanelBody>
+      </Panel>
     </section>
   );
 }
@@ -109,33 +94,39 @@ function RecentCodebasesSection(props: {
   error: unknown;
 }) {
   return (
-    <section className="mb-8">
+    <section>
       <DraftingLabel size="sm" weight="bold" className="mb-2 block">
         § B · RECENT CODEBASES
       </DraftingLabel>
-      <div className="border border-border-strong bg-surface">
+      <Panel>
         {props.isLoading ? (
-          <div className="p-4 text-sm text-text-secondary">Loading…</div>
+          <PanelBody>
+            <div className="text-sm text-text-secondary">Loading…</div>
+          </PanelBody>
         ) : props.error ? (
-          <div className="p-4 text-sm text-error">Failed to load recent codebases.</div>
+          <PanelBody>
+            <div className="text-sm text-error">Failed to load recent codebases.</div>
+          </PanelBody>
         ) : !props.recent || props.recent.length === 0 ? (
-          <div className="p-4 text-sm text-text-tertiary">No codebases yet.</div>
+          <PanelBody>
+            <div className="text-sm text-text-tertiary">No codebases yet.</div>
+          </PanelBody>
         ) : (
           <ul className="divide-y divide-border">
             {props.recent.map((row) => (
-              <li key={row.hash} className="flex items-center justify-between px-4 py-2 text-sm">
+              <li key={row.hash} className="flex items-center justify-between px-3.5 py-2 text-sm">
                 <span className="text-text-primary">{row.label ?? row.absolutePath}</span>
                 <span className="font-mono text-xs text-text-tertiary">{row.hash}</span>
               </li>
             ))}
           </ul>
         )}
-      </div>
+      </Panel>
     </section>
   );
 }
 
-function ComponentShowcase() {
+function PrimitivesShowcase() {
   return (
     <section>
       <DraftingLabel size="sm" weight="bold" className="mb-2 block">
@@ -166,102 +157,271 @@ function ComponentShowcase() {
         </div>
       </ShowcaseCard>
 
-      <ShowcaseCard label="C.2 · CHIP — REVIEW STATUS">
-        <ChipRow
-          variants={['approved', 'rejected', 'info-requested', 'never-reviewed']}
-          labels={{
-            approved: 'APPROVED',
-            rejected: 'REJECTED',
-            'info-requested': 'INFO REQUESTED',
-            'never-reviewed': 'NEVER REVIEWED',
-          }}
-        />
-      </ShowcaseCard>
-
-      <ShowcaseCard label="C.3 · CHIP — CHANGE STATE">
-        <ChipRow
-          variants={['new', 'modified', 'stale']}
-          labels={{
-            new: 'NEW',
-            modified: 'MODIFIED',
-            stale: 'STALE',
-          }}
-        />
-      </ShowcaseCard>
-
-      <ShowcaseCard label="C.4 · CHIP — COMPARISON">
-        <ChipRow
-          variants={['contract-change', 'indirect-impact', 'cosmetic']}
-          labels={{
-            'contract-change': 'CONTRACT CHANGE',
-            'indirect-impact': 'INDIRECT IMPACT',
-            cosmetic: 'COSMETIC',
-          }}
-        />
-      </ShowcaseCard>
-
-      <ShowcaseCard label="C.5 · CHIP — CLASSIFICATION">
-        <ChipRow
-          variants={[
-            'route-handler',
-            'service',
-            'client',
-            'repository',
-            'helper',
-            'middleware',
-            'component',
-            'page',
-            'hook',
-            'config',
-            'script',
-            'seed',
-            'fixture',
-            'test',
-            'type-only',
-            'unclassified',
-          ]}
-          labels={{
-            'route-handler': 'ROUTE HANDLER',
-            service: 'SERVICE',
-            client: 'CLIENT',
-            repository: 'REPOSITORY',
-            helper: 'HELPER',
-            middleware: 'MIDDLEWARE',
-            component: 'COMPONENT',
-            page: 'PAGE',
-            hook: 'HOOK',
-            config: 'CONFIG',
-            script: 'SCRIPT',
-            seed: 'SEED',
-            fixture: 'FIXTURE',
-            test: 'TEST',
-            'type-only': 'TYPE ONLY',
-            unclassified: 'UNCLASSIFIED',
-          }}
-        />
-      </ShowcaseCard>
-
-      <ShowcaseCard label="C.6 · CORNER TICKS — ON A PANEL">
-        <div className="grid grid-cols-2 gap-6">
-          <div className="relative border border-border-strong bg-surface p-4">
-            <CornerTicks tone="primary" />
-            <DraftingLabel size="sm">FIG. D · PRIMARY TICKS</DraftingLabel>
-            <p className="mt-2 text-sm text-text-secondary">
-              Used on focused panels — the code panel of the currently-active node, the checklist
-              alongside it. Indicates: this is the surface the reviewer is working on.
-            </p>
-          </div>
-          <div className="relative border border-border-strong bg-surface p-4">
-            <CornerTicks tone="border-strong" />
-            <DraftingLabel size="sm">FIG. E · NEUTRAL TICKS</DraftingLabel>
-            <p className="mt-2 text-sm text-text-secondary">
-              The understated variant — same drafting cue, lower visual weight. Used when emphasis
-              isn't called for.
-            </p>
-          </div>
+      <ShowcaseCard label="C.2 · CHIP — ALL VARIANTS">
+        <div className="space-y-3">
+          <ChipRow
+            variants={['approved', 'rejected', 'info-requested', 'never-reviewed']}
+            labels={STATE_LABELS}
+          />
+          <ChipRow variants={['new', 'modified', 'stale']} labels={STATE_LABELS} />
+          <ChipRow
+            variants={['contract-change', 'indirect-impact', 'cosmetic']}
+            labels={STATE_LABELS}
+          />
+          <ChipRow
+            variants={[
+              'route-handler',
+              'service',
+              'client',
+              'repository',
+              'helper',
+              'middleware',
+              'component',
+              'page',
+              'hook',
+              'config',
+              'script',
+              'seed',
+              'fixture',
+              'test',
+              'type-only',
+              'unclassified',
+            ]}
+            labels={STATE_LABELS}
+          />
         </div>
       </ShowcaseCard>
     </section>
+  );
+}
+
+function SurfacesShowcase() {
+  return (
+    <section>
+      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
+        § D · BLUEPRINT SURFACES (TIER-1)
+      </DraftingLabel>
+
+      <ShowcaseCard label="D.1 · PANEL — DEFAULT">
+        <Panel>
+          <PanelHeader>
+            <DraftingLabel size="sm">FIG. P · DEFAULT PANEL</DraftingLabel>
+          </PanelHeader>
+          <PanelBody>
+            <p className="text-sm text-text-secondary">
+              Default tone — white surface, hairline border, no corner ticks.
+            </p>
+          </PanelBody>
+        </Panel>
+      </ShowcaseCard>
+
+      <ShowcaseCard label="D.2 · PANEL — TICKED + FOOTER">
+        <Panel ticks>
+          <PanelHeader tone="sunken">
+            <DraftingLabel size="sm">FIG. Q · TICKED PANEL</DraftingLabel>
+            <Chip variant="route-handler">ROUTE HANDLER</Chip>
+            <div className="flex-1" />
+            <DraftingLabel size="xs">NODE 03 / 07</DraftingLabel>
+          </PanelHeader>
+          <PanelBody>
+            <p className="text-sm text-text-secondary">
+              Focused panels carry corner ticks. Sunken header tone separates the chrome from the
+              body. Footer is sunken by default and used for dig-into rows.
+            </p>
+          </PanelBody>
+          <PanelFooter>
+            <DraftingLabel size="xs">CALLS →</DraftingLabel>
+            <span className="font-mono text-sm font-semibold text-text-primary">
+              billing.charge()
+            </span>
+          </PanelFooter>
+        </Panel>
+      </ShowcaseCard>
+
+      <ShowcaseCard label="D.3 · TITLE BLOCK">
+        <TitleBlock
+          drawingLabel="DRAWING · WALKTHROUGH"
+          title="acme-api"
+          tagline="POST /api/checkout"
+          cells={[
+            { label: 'PROJECT', value: 'acme-api' },
+            { label: 'REV', value: 'feat/checkout-v2' },
+            { label: 'SHEET', value: '03 / 12' },
+          ]}
+        />
+      </ShowcaseCard>
+
+      <ShowcaseCard label="D.4 · PATH BREADCRUMB">
+        <Panel>
+          <PathBreadcrumb leadingLabel="PATH">
+            <PathBreadcrumb.Segment>routes/purchase.ts</PathBreadcrumb.Segment>
+            <PathBreadcrumb.Segment>handlePurchase</PathBreadcrumb.Segment>
+            <PathBreadcrumb.Segment current>billing.charge</PathBreadcrumb.Segment>
+          </PathBreadcrumb>
+          <PanelBody>
+            <p className="text-sm text-text-secondary">
+              Used at the top of canvas-related views to anchor the reviewer's location along the
+              active path.
+            </p>
+          </PanelBody>
+        </Panel>
+      </ShowcaseCard>
+
+      <ShowcaseCard label="D.5 · LINE GUTTER">
+        <Panel>
+          <LineGutterBlock
+            lines={[
+              { number: 142, text: 'export async function handlePurchase(req, res) {' },
+              { number: 143, text: '  const user = await authenticate(req)' },
+              { number: 144, text: '  if (!user) return res.status(401).send()' },
+              { number: 145, text: '' },
+              {
+                number: 146,
+                text: '  const { items, paymentMethod } = req.body',
+                state: 'modified',
+              },
+              { number: 147, text: '  const validated = validateOrder(items)', state: 'modified' },
+              { number: 148, text: '' },
+              { number: 149, text: '  const charge = await billing.charge({', state: 'new' },
+              { number: 150, text: '    userId: user.id,', state: 'new' },
+              { number: 151, text: '    amount: validated.total,', state: 'new' },
+              { number: 152, text: '    method: paymentMethod,', state: 'new' },
+              { number: 153, text: '  })', state: 'new' },
+              { number: 154, text: '' },
+              {
+                number: 155,
+                text: '  await orders.create({ userId: user.id, charge })',
+              },
+              { number: 156, text: '  return res.status(200).json({ ok: true })' },
+              { number: 157, text: '}' },
+            ]}
+          />
+        </Panel>
+      </ShowcaseCard>
+    </section>
+  );
+}
+
+function KitchenSink() {
+  return (
+    <section>
+      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
+        § E · KITCHEN SINK — WALKTHROUGH NODE COMPOSED
+      </DraftingLabel>
+      <p className="mb-3 text-sm text-text-secondary">
+        Composed from Tier-0 + Tier-1 primitives. Approximates the focused-node shape from the
+        original style preview to validate visual fidelity.
+      </p>
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+        <Panel ticks>
+          <PanelHeader tone="sunken">
+            <DraftingLabel size="xs">FIG. A ·</DraftingLabel>
+            <Chip variant="route-handler">ROUTE HANDLER</Chip>
+            <Chip variant="modified">MODIFIED</Chip>
+            <Chip variant="new">NEW CALLS</Chip>
+            <div className="flex-1" />
+            <DraftingLabel size="xs">NODE 03 / 07</DraftingLabel>
+          </PanelHeader>
+          <PathBreadcrumb leadingLabel="PATH">
+            <PathBreadcrumb.Segment>routes/purchase.ts</PathBreadcrumb.Segment>
+            <PathBreadcrumb.Segment>handlePurchase</PathBreadcrumb.Segment>
+            <PathBreadcrumb.Segment current>billing.charge</PathBreadcrumb.Segment>
+          </PathBreadcrumb>
+          <PanelBody>
+            <div className="flex items-baseline gap-3">
+              <DraftingLabel size="xs">A.1</DraftingLabel>
+              <div>
+                <div className="font-mono text-xs text-text-tertiary">src/routes/purchase.ts</div>
+                <div className="font-mono text-base font-semibold text-text-primary">
+                  handlePurchase(req, res)
+                </div>
+              </div>
+            </div>
+          </PanelBody>
+          <div className="border-t border-dashed border-border-strong">
+            <LineGutterBlock
+              lines={[
+                { number: 142, text: 'export async function handlePurchase(req, res) {' },
+                { number: 143, text: '  const user = await authenticate(req)' },
+                { number: 144, text: '  if (!user) return res.status(401).send()' },
+                { number: 145, text: '' },
+                {
+                  number: 146,
+                  text: '  const { items, paymentMethod } = req.body',
+                  state: 'modified',
+                },
+                {
+                  number: 147,
+                  text: '  const validated = validateOrder(items)',
+                  state: 'modified',
+                },
+                { number: 148, text: '' },
+                { number: 149, text: '  const charge = await billing.charge({', state: 'new' },
+                { number: 150, text: '    userId: user.id,', state: 'new' },
+                { number: 151, text: '    amount: validated.total,', state: 'new' },
+                { number: 152, text: '    method: paymentMethod,', state: 'new' },
+                { number: 153, text: '  })', state: 'new' },
+                { number: 154, text: '' },
+                {
+                  number: 155,
+                  text: '  await orders.create({ userId: user.id, charge })',
+                },
+                { number: 156, text: '  return res.status(200).json({ ok: true })' },
+                { number: 157, text: '}' },
+              ]}
+            />
+          </div>
+          <PanelFooter>
+            <DraftingLabel size="xs">CALLS →</DraftingLabel>
+            <span className="font-mono text-sm font-semibold text-text-primary">
+              billing.charge()
+            </span>
+          </PanelFooter>
+        </Panel>
+        <Panel ticks>
+          <PanelHeader tone="sunken">
+            <DraftingLabel size="sm">FIG. B · CHECKLIST · ROUTE_HANDLER</DraftingLabel>
+          </PanelHeader>
+          <PanelBody>
+            <ul className="divide-y divide-dashed divide-border">
+              <ChecklistItem label="Authenticates request" status="pass" />
+              <ChecklistItem label="Validates input schema" status="pass" />
+              <ChecklistItem label="Handles errors consistently" status="fail" />
+              <ChecklistItem label="Response shape matches contract" status="skip" />
+            </ul>
+          </PanelBody>
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function ChecklistItem(props: { label: string; status: 'pass' | 'fail' | 'skip' }) {
+  return (
+    <li className="flex items-center gap-2.5 py-1.5 text-sm">
+      <span
+        aria-hidden="true"
+        className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center text-[10px] font-bold text-text-inverse"
+        style={{
+          background:
+            props.status === 'pass'
+              ? 'var(--color-approve-600)'
+              : props.status === 'fail'
+                ? 'var(--color-reject-600)'
+                : 'transparent',
+          border:
+            props.status === 'skip'
+              ? '1px dashed var(--color-border-strong)'
+              : `1px solid ${
+                  props.status === 'pass' ? 'var(--color-approve-600)' : 'var(--color-reject-600)'
+                }`,
+        }}
+      >
+        {props.status === 'pass' ? '✓' : props.status === 'fail' ? '✕' : ''}
+      </span>
+      <span className="flex-1 text-text-primary">{props.label}</span>
+      <DraftingLabel size="xs">{props.status.toUpperCase()}</DraftingLabel>
+    </li>
   );
 }
 
@@ -290,3 +450,32 @@ function ChipRow(props: {
     </div>
   );
 }
+
+const STATE_LABELS: Partial<Record<ChipVariant, string>> = {
+  approved: 'APPROVED',
+  rejected: 'REJECTED',
+  'info-requested': 'INFO REQUESTED',
+  'never-reviewed': 'NEVER REVIEWED',
+  new: 'NEW',
+  modified: 'MODIFIED',
+  stale: 'STALE',
+  'contract-change': 'CONTRACT CHANGE',
+  'indirect-impact': 'INDIRECT IMPACT',
+  cosmetic: 'COSMETIC',
+  'route-handler': 'ROUTE HANDLER',
+  service: 'SERVICE',
+  client: 'CLIENT',
+  repository: 'REPOSITORY',
+  helper: 'HELPER',
+  middleware: 'MIDDLEWARE',
+  component: 'COMPONENT',
+  page: 'PAGE',
+  hook: 'HOOK',
+  config: 'CONFIG',
+  script: 'SCRIPT',
+  seed: 'SEED',
+  fixture: 'FIXTURE',
+  test: 'TEST',
+  'type-only': 'TYPE ONLY',
+  unclassified: 'UNCLASSIFIED',
+};
