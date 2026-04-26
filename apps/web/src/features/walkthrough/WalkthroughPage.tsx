@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Canvas,
   type CanvasEdgeType,
@@ -16,6 +16,23 @@ import {
 } from '../../components/blueprint/index.ts';
 import { trpcClient } from '../../trpc.ts';
 import { getDefaultChecklist } from './checklists.ts';
+
+type ReviewStatus = 'approved' | 'rejected' | 'info_requested';
+
+type RuntimeState =
+  | { readonly kind: 'never_reviewed' }
+  | {
+      readonly kind: 'reviewed_current';
+      readonly current: { readonly status: ReviewStatus; readonly comment: string | null };
+    }
+  | {
+      readonly kind: 'reviewed_stale';
+      readonly prior: { readonly status: ReviewStatus; readonly comment: string | null };
+    }
+  | {
+      readonly kind: 'info_requested';
+      readonly current: { readonly status: ReviewStatus; readonly comment: string | null };
+    };
 
 type PathNodeRow = {
   readonly position: number;
@@ -37,6 +54,7 @@ type PathNodeRow = {
     readonly confidence: string;
     readonly justification: string | null;
   } | null;
+  readonly runtimeState: RuntimeState;
 };
 
 type PathPayload = {
@@ -56,6 +74,7 @@ export function WalkthroughPage() {
   const { projectId, pathId } = useParams({ from: '/project/$projectId/path/$pathId' });
   const search = useSearch({ from: '/project/$projectId/path/$pathId' });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const focusPosition = search.focus ?? 0;
 
   const status = useQuery({
@@ -67,6 +86,29 @@ export function WalkthroughPage() {
     queryKey: ['walkthrough', 'getPath', pathId],
     queryFn: () => trpcClient.walkthrough.getPath.query({ pathId }),
     enabled: status.data?.active != null,
+  });
+
+  const setStatusMutation = useMutation({
+    mutationFn: (input: {
+      nodeIdentity: string;
+      status: ReviewStatus;
+      comment: string | null;
+    }) =>
+      trpcClient.review.setStatus.mutate({
+        nodeIdentity: input.nodeIdentity,
+        status: input.status,
+        comment: input.comment ?? undefined,
+      }),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] });
+    },
+  });
+
+  const clearStatusMutation = useMutation({
+    mutationFn: (nodeIdentity: string) => trpcClient.review.clear.mutate({ nodeIdentity }),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] });
+    },
   });
 
   const data = pathQuery.data as PathPayload | undefined;
@@ -196,6 +238,25 @@ export function WalkthroughPage() {
                   background="dot-grid"
                 />
               </div>
+              {focusedNode && (
+                <ActionRow
+                  focused={focusedNode}
+                  isPending={setStatusMutation.isPending || clearStatusMutation.isPending}
+                  error={setStatusMutation.error ?? clearStatusMutation.error}
+                  onAction={(status, comment) => {
+                    if (!focusedNode) return;
+                    setStatusMutation.mutate({
+                      nodeIdentity: focusedNode.nodeIdentity,
+                      status,
+                      comment,
+                    });
+                  }}
+                  onClear={() => {
+                    if (!focusedNode) return;
+                    clearStatusMutation.mutate(focusedNode.nodeIdentity);
+                  }}
+                />
+              )}
               <PathSequence nodes={nodes} focusedPosition={focusPosition} onFocus={focusOn} />
             </div>
             <ChecklistSidebar focused={focusedNode} isLoading={nodeQuery.isLoading} />
@@ -219,6 +280,7 @@ function buildLayout(
   const canvasNodes: CanvasNodeType[] = nodes.map((n) => {
     const isFocused = n.nodeIdentity === options.focusedIdentity;
     const classificationVariant = classificationToChipVariant(n.classification?.classification);
+    const canvasStatus = canvasStatusFor(n.runtimeState);
     if (isFocused) {
       return {
         id: n.nodeIdentity,
@@ -229,6 +291,7 @@ function buildLayout(
           focused: true,
           figureLabel: 'FIG. A',
           classification: classificationVariant,
+          status: canvasStatus,
           filePath: n.analyzed?.filePath ?? '',
           title: n.analyzed?.name ?? n.nodeIdentity,
           bodyPreview: focusedBodyLines,
@@ -243,6 +306,7 @@ function buildLayout(
         variant: 'summary',
         focused: false,
         classification: classificationVariant,
+        status: canvasStatus,
         title: n.analyzed?.name ?? n.nodeIdentity.split(':').at(-1) ?? '',
         subtitle: n.analyzed?.filePath ?? '',
       },
@@ -261,6 +325,12 @@ function buildLayout(
   });
 
   return layoutCanvas(canvasNodes, canvasEdges);
+}
+
+function canvasStatusFor(
+  runtime: RuntimeState,
+): 'reviewed_current' | 'reviewed_stale' | 'info_requested' | 'never_reviewed' {
+  return runtime.kind;
 }
 
 function classificationToChipVariant(classification: string | undefined): ChipVariant {
@@ -315,6 +385,7 @@ function PathSequence(props: {
       <ul className="divide-y divide-border" data-testid="walkthrough-sequence">
         {props.nodes.map((n) => {
           const isFocused = n.position === props.focusedPosition;
+          const runtime = runtimeChipFor(n.runtimeState);
           return (
             <li key={n.position}>
               <button
@@ -328,6 +399,7 @@ function PathSequence(props: {
                   .join(' ')}
                 data-testid={`walkthrough-sequence-row-${n.position}`}
                 data-focused={isFocused ? 'true' : 'false'}
+                data-runtime-state={n.runtimeState.kind}
               >
                 <span className="font-mono text-xs text-text-tertiary w-8">{n.position + 1}.</span>
                 {n.classification && (
@@ -345,6 +417,7 @@ function PathSequence(props: {
                     </div>
                   )}
                 </div>
+                {runtime && <Chip variant={runtime.variant}>{runtime.label}</Chip>}
               </button>
             </li>
           );
@@ -352,6 +425,145 @@ function PathSequence(props: {
       </ul>
     </Panel>
   );
+}
+
+function ActionRow(props: {
+  focused: PathNodeRow;
+  isPending: boolean;
+  error: unknown;
+  onAction: (status: ReviewStatus, comment: string | null) => void;
+  onClear: () => void;
+}) {
+  const [comment, setComment] = useState('');
+  const runtime = runtimeChipFor(props.focused.runtimeState);
+  const currentStatus = currentStatusOf(props.focused.runtimeState);
+
+  return (
+    <Panel>
+      <PanelHeader tone="sunken">
+        <DraftingLabel size="sm">FIG. R · REVIEW ACTION</DraftingLabel>
+        <div className="flex-1" />
+        {runtime ? (
+          <Chip variant={runtime.variant}>{runtime.label}</Chip>
+        ) : (
+          <DraftingLabel size="xs">NEVER REVIEWED</DraftingLabel>
+        )}
+      </PanelHeader>
+      <PanelBody>
+        <textarea
+          name="review-comment"
+          rows={2}
+          placeholder="Comment (required for Request Info; optional otherwise)"
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          disabled={props.isPending}
+          className="block w-full resize-y border border-border-strong bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-primary"
+          data-testid="walkthrough-action-comment"
+        />
+        {props.error !== null && props.error !== undefined && (
+          <div className="mt-2 text-sm text-error" data-testid="walkthrough-action-error">
+            {String((props.error as Error).message ?? props.error)}
+          </div>
+        )}
+      </PanelBody>
+      <div className="flex flex-wrap items-center gap-2 border-t border-border bg-surface-sunken px-3.5 py-2">
+        <ActionButton
+          label="Approve"
+          tone="approve"
+          disabled={props.isPending}
+          onClick={() => {
+            props.onAction('approved', comment.trim() || null);
+            setComment('');
+          }}
+          testId="walkthrough-action-approve"
+        />
+        <ActionButton
+          label="Reject"
+          tone="reject"
+          disabled={props.isPending}
+          onClick={() => {
+            props.onAction('rejected', comment.trim() || null);
+            setComment('');
+          }}
+          testId="walkthrough-action-reject"
+        />
+        <ActionButton
+          label="Request info"
+          tone="info"
+          disabled={props.isPending || comment.trim() === ''}
+          onClick={() => {
+            const trimmed = comment.trim();
+            if (!trimmed) return;
+            props.onAction('info_requested', trimmed);
+            setComment('');
+          }}
+          testId="walkthrough-action-info"
+        />
+        <div className="flex-1" />
+        {currentStatus && (
+          <button
+            type="button"
+            onClick={() => props.onClear()}
+            disabled={props.isPending}
+            className="border border-border-strong bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-secondary hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="walkthrough-action-clear"
+          >
+            CLEAR
+          </button>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function ActionButton(props: {
+  label: string;
+  tone: 'approve' | 'reject' | 'info';
+  disabled: boolean;
+  onClick: () => void;
+  testId: string;
+}) {
+  const styles = {
+    approve: 'border-approve-600 bg-approve-600 text-text-inverse hover:bg-approve-500',
+    reject: 'border-reject-600 bg-transparent text-reject-600 hover:bg-reject-soft',
+    info: 'border-info-600 bg-transparent text-info-600 hover:bg-info-soft',
+  } as const;
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled}
+      className={[
+        'border px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-60',
+        styles[props.tone],
+      ].join(' ')}
+      data-testid={props.testId}
+    >
+      {props.label}
+    </button>
+  );
+}
+
+function runtimeChipFor(runtime: RuntimeState): { variant: ChipVariant; label: string } | null {
+  switch (runtime.kind) {
+    case 'never_reviewed':
+      return null;
+    case 'reviewed_current':
+      if (runtime.current.status === 'approved') return { variant: 'approved', label: 'APPROVED' };
+      if (runtime.current.status === 'rejected') return { variant: 'rejected', label: 'REJECTED' };
+      return { variant: 'info-requested', label: 'INFO REQ' };
+    case 'reviewed_stale':
+      return { variant: 'stale', label: 'STALE' };
+    case 'info_requested':
+      return { variant: 'info-requested', label: 'INFO REQ' };
+  }
+}
+
+function currentStatusOf(runtime: RuntimeState): ReviewStatus | null {
+  if (runtime.kind === 'reviewed_current') return runtime.current.status;
+  if (runtime.kind === 'info_requested') return runtime.current.status;
+  if (runtime.kind === 'reviewed_stale') return runtime.prior.status;
+  return null;
 }
 
 function ChecklistSidebar(props: { focused: PathNodeRow | null; isLoading: boolean }) {
