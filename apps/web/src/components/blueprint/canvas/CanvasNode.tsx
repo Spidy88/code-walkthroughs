@@ -62,7 +62,7 @@ function CodeNode(props: { data: CanvasNodeType['data'] }) {
     >
       {data.focused && <CornerTicks tone="primary" />}
       <NodeHandles />
-      <div className="flex items-center gap-1.5 border-b border-border bg-surface-sunken px-2.5 py-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface-sunken px-2.5 py-1.5">
         {data.figureLabel && <DraftingLabel size="xs">{data.figureLabel}</DraftingLabel>}
         {data.classification && (
           <Chip variant={data.classification}>
@@ -74,11 +74,10 @@ function CodeNode(props: { data: CanvasNodeType['data'] }) {
             {chip.label}
           </Chip>
         ))}
-        <div className="flex-1" />
         {data.status && (
           <span
             aria-label={STATUS_LABEL[data.status]}
-            className="font-mono text-[0.625rem] uppercase tracking-wider text-text-tertiary"
+            className="ml-auto font-mono text-[0.625rem] uppercase tracking-wider text-text-tertiary"
             style={{ display: 'flex', alignItems: 'center', gap: 4 }}
           >
             <span
