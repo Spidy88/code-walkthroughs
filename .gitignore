@@ -11,3 +11,8 @@ coverage/
 .cache/
 *.tsbuildinfo
 .claude/settings.local.json
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

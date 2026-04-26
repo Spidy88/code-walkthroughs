@@ -15,6 +15,8 @@
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "pnpm --filter @cw/web test:e2e",
+    "test:e2e:ui": "pnpm --filter @cw/web test:e2e:ui",
     "dev": "concurrently -n server,web -c blue,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
     "dev:server": "pnpm --filter @cw/server dev",
     "dev:web": "pnpm --filter @cw/web dev",

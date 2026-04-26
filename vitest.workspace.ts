@@ -5,4 +5,5 @@ export default defineWorkspace([
   './packages/adapters',
   './packages/analyzer',
   './apps/server',
+  './apps/web',
 ]);
