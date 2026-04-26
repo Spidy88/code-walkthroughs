@@ -1027,6 +1027,7 @@ function ActionRow(props: {
   const runtime = runtimeChipFor(props.runtimeState);
   const currentScope = currentScopeOf(props.runtimeState);
   const currentStatus = currentStatusOf(props.runtimeState);
+  const staleHint = staleHintFor(props.runtimeState);
 
   return (
     <Panel>
@@ -1039,6 +1040,14 @@ function ActionRow(props: {
           {props.activeName}
         </span>
         <div className="flex-1" />
+        {staleHint && (
+          <span
+            className="font-mono text-[0.625rem] uppercase tracking-widest text-stale-500"
+            data-testid="walkthrough-action-stale-hint"
+          >
+            {staleHint}
+          </span>
+        )}
         {currentScope === 'path' && <Chip variant="info-requested">PATH SCOPED</Chip>}
         {runtime ? (
           <Chip variant={runtime.variant}>{runtime.label}</Chip>
@@ -1605,6 +1614,11 @@ function ActionButton(props: {
       {props.label}
     </button>
   );
+}
+
+function staleHintFor(runtime: RuntimeState): string | null {
+  if (runtime.kind !== 'reviewed_stale') return null;
+  return `previously ${runtime.prior.status.replace('_', ' ')} — modified since`;
 }
 
 function runtimeChipFor(runtime: RuntimeState): { variant: ChipVariant; label: string } | null {

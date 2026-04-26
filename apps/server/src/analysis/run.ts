@@ -2,8 +2,9 @@ import { basename } from 'node:path';
 import { jsTsAdapter } from '@cw/adapters';
 import { type AnalysisOutput, runAnalysis } from '@cw/analyzer';
 import type { AnalysisRunSummary, AnalysisStage, CodebaseId, ProjectMeta } from '@cw/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, notInArray } from 'drizzle-orm';
 import type { OpenedCodebase } from '../codebase/open.ts';
+import { comments } from '../db/schema/state/comments.ts';
 import { prepAnswers } from '../db/schema/state/prep-answers.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { createAnalyzerCallbacks } from '../llm/pipelines.ts';
@@ -74,6 +75,13 @@ export async function runCodebaseAnalysis(
   emit({ stage: 'persisting', fileCount: collected.length });
   await persistAnalysis(codebase.dbs.cache, project.id, output, collected, now());
 
+  // Spec §13 — orphaned-comment handling. After re-analysis, any
+  // comment whose anchor function/file no longer exists in the
+  // freshly persisted cache.db gets soft-archived. The reviewer can
+  // still find them under "show archived" but they no longer clutter
+  // the active surface.
+  await archiveOrphanedComments(codebase, output, now());
+
   const summary: AnalysisRunSummary = {
     projectId: project.id,
     fileCount: collected.length,
@@ -87,6 +95,39 @@ export async function runCodebaseAnalysis(
   log.info(summary, 'analysis complete');
   emit({ stage: 'completed', fileCount: collected.length, summary });
   return { output, summary };
+}
+
+async function archiveOrphanedComments(
+  codebase: OpenedCodebase,
+  output: AnalysisOutput,
+  now: Date,
+): Promise<void> {
+  const aliveFilePaths = new Set(output.parsedFiles.map((p) => p.file.path));
+  const aliveFunctionIdentities = new Set(
+    output.parsedFiles.flatMap((p) => p.nodes.map((n) => n.identity)),
+  );
+  const ts = now.toISOString();
+  // Two narrow passes:
+  //  1) Function-anchored or line-anchored rows whose function
+  //     identity is gone → archived.
+  //  2) File-anchored rows whose file is gone → archived.
+  if (aliveFunctionIdentities.size > 0) {
+    await codebase.dbs.state
+      .update(comments)
+      .set({ archivedAt: ts, updatedAt: ts })
+      .where(
+        and(
+          isNull(comments.archivedAt),
+          notInArray(comments.functionIdentity, [...aliveFunctionIdentities]),
+        ),
+      );
+  }
+  if (aliveFilePaths.size > 0) {
+    await codebase.dbs.state
+      .update(comments)
+      .set({ archivedAt: ts, updatedAt: ts })
+      .where(and(isNull(comments.archivedAt), notInArray(comments.filePath, [...aliveFilePaths])));
+  }
 }
 
 async function loadBranchAnswers(codebase: OpenedCodebase): Promise<Map<string, string>> {
