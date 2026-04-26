@@ -67,7 +67,7 @@
   },
   "overrides": [
     {
-      "include": ["**/test/**", "**/*.test.ts", "**/*.test.tsx"],
+      "include": ["**/test/**", "**/*.test.ts", "**/*.test.tsx", "**/e2e-capture/**", "scripts/**"],
       "linter": {
         "rules": {
           "suspicious": {

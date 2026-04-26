@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { jsTsAdapter } from '@cw/adapters';
 import { type AnalysisOutput, runAnalysis } from '@cw/analyzer';
-import type { CodebaseId, ProjectMeta } from '@cw/shared';
+import type { AnalysisRunSummary, AnalysisStage, CodebaseId, ProjectMeta } from '@cw/shared';
 import type { OpenedCodebase } from '../codebase/open.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { createAnalyzerCallbacks } from '../llm/pipelines.ts';
@@ -9,15 +9,13 @@ import type { Logger } from '../logger.ts';
 import { collectJsTsFiles } from './filesystem.ts';
 import { persistAnalysis } from './persist.ts';
 
-export type AnalysisRunSummary = {
-  readonly projectId: string;
-  readonly fileCount: number;
-  readonly classificationCount: number;
-  readonly entryPointCount: number;
-  readonly pathCount: number;
-  readonly prepQuestionCount: number;
-  readonly llmEnabled: boolean;
-  readonly durationMs: number;
+export type { AnalysisRunSummary };
+
+export type AnalysisProgressUpdate = {
+  readonly stage: AnalysisStage;
+  readonly fileCount?: number;
+  readonly summary?: AnalysisRunSummary;
+  readonly error?: string;
 };
 
 export async function runCodebaseAnalysis(
@@ -26,11 +24,13 @@ export async function runCodebaseAnalysis(
     readonly llmClient: LlmClient;
     readonly signal: AbortSignal;
     readonly now?: () => Date;
+    readonly onProgress?: (update: AnalysisProgressUpdate) => void;
   },
   deps: { readonly logger: Logger },
 ): Promise<{ output: AnalysisOutput; summary: AnalysisRunSummary }> {
-  const { codebase, llmClient, signal } = input;
+  const { codebase, llmClient, signal, onProgress } = input;
   const now = input.now ?? (() => new Date());
+  const emit = (update: AnalysisProgressUpdate) => onProgress?.(update);
 
   const log = deps.logger.child({ component: 'analysis', codebase: codebase.hash });
   const started = Date.now();
@@ -46,8 +46,11 @@ export async function runCodebaseAnalysis(
   };
 
   log.info('analysis starting');
+  emit({ stage: 'collecting' });
+
   const collected = await collectJsTsFiles(codebase.absolutePath, codebase.git, signal);
   log.info({ fileCount: collected.length }, 'files collected');
+  emit({ stage: 'analyzing', fileCount: collected.length });
 
   const analyzerCallbacks = createAnalyzerCallbacks(llmClient);
 
@@ -58,6 +61,7 @@ export async function runCodebaseAnalysis(
     signal,
   });
 
+  emit({ stage: 'persisting', fileCount: collected.length });
   await persistAnalysis(codebase.dbs.cache, project.id, output, collected, now());
 
   const summary: AnalysisRunSummary = {
@@ -71,5 +75,6 @@ export async function runCodebaseAnalysis(
     durationMs: Date.now() - started,
   };
   log.info(summary, 'analysis complete');
+  emit({ stage: 'completed', fileCount: collected.length, summary });
   return { output, summary };
 }

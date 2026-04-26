@@ -14,6 +14,13 @@ export {
 
 export type { Codebase, CodebaseId, ProjectMeta } from './types/codebase.ts';
 
+export type {
+  AnalysisProgress,
+  AnalysisRunSummary,
+  AnalysisStage,
+} from './types/analysis-progress.ts';
+export { IDLE_PROGRESS } from './types/analysis-progress.ts';
+
 export type { AnalyzedFile, AnalyzedNode, NodeIdentity } from './types/node.ts';
 
 export type {

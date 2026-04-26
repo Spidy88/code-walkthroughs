@@ -1,3 +1,4 @@
+import { type AnalysisProgress, IDLE_PROGRESS } from '@cw/shared';
 import type { OpenedCodebase } from './codebase/open.ts';
 import type { Logger } from './logger.ts';
 
@@ -8,6 +9,8 @@ export type Session = {
   clear(): void;
   cancelCurrentAnalysis(): void;
   setAnalysisController(controller: AbortController): void;
+  getProgress(): AnalysisProgress;
+  setProgress(progress: AnalysisProgress): void;
 };
 
 export class NoActiveCodebaseError extends Error {
@@ -21,6 +24,7 @@ export class NoActiveCodebaseError extends Error {
 export function createSession(logger: Logger): Session {
   let active: OpenedCodebase | null = null;
   let controller: AbortController | null = null;
+  let progress: AnalysisProgress = IDLE_PROGRESS;
   const log = logger.child({ component: 'session' });
 
   return {
@@ -38,6 +42,8 @@ export function createSession(logger: Logger): Session {
         active.close();
       }
       active = codebase;
+      // New codebase → reset progress.
+      progress = IDLE_PROGRESS;
     },
     clear() {
       controller?.abort();
@@ -46,6 +52,7 @@ export function createSession(logger: Logger): Session {
         active.close();
         active = null;
       }
+      progress = IDLE_PROGRESS;
     },
     cancelCurrentAnalysis() {
       controller?.abort();
@@ -54,6 +61,12 @@ export function createSession(logger: Logger): Session {
     setAnalysisController(next) {
       controller?.abort();
       controller = next;
+    },
+    getProgress() {
+      return progress;
+    },
+    setProgress(next) {
+      progress = next;
     },
   };
 }
