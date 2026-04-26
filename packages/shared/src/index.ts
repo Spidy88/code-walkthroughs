@@ -78,21 +78,27 @@ export {
 export type {
   AddCommentInput,
   ClearStatusInput,
+  DeleteCommentInput,
+  ListCommentsInput,
   PromoteScopedApprovalInput,
   SetFileStatusInput,
   SetStatusInput,
+  UpdateCommentInput,
 } from './schemas/review.ts';
 export {
   addCommentInputSchema,
   clearStatusInputSchema,
   commentAnchorKindSchema,
   commentAnchorSchema,
+  deleteCommentInputSchema,
   fileCascadeResolutionSchema,
+  listCommentsInputSchema,
   promoteScopedApprovalInputSchema,
   reviewStatusSchema,
   setFileStatusInputSchema,
   setStatusInputSchema,
   statusScopeSchema,
+  updateCommentInputSchema,
 } from './schemas/review.ts';
 
 export type { CreateRuleInput } from './schemas/rule.ts';

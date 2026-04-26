@@ -91,3 +91,19 @@ export const addCommentInputSchema = z.object({
 });
 
 export type AddCommentInput = z.infer<typeof addCommentInputSchema>;
+
+export const updateCommentInputSchema = z.object({
+  id: z.string().min(1),
+  body: z.string().min(1).max(10000),
+});
+
+export type UpdateCommentInput = z.infer<typeof updateCommentInputSchema>;
+
+export const deleteCommentInputSchema = z.object({
+  id: z.string().min(1),
+});
+
+export type DeleteCommentInput = z.infer<typeof deleteCommentInputSchema>;
+
+export const listCommentsInputSchema = commentAnchorSchema;
+export type ListCommentsInput = z.infer<typeof listCommentsInputSchema>;

@@ -152,6 +152,23 @@ export function WalkthroughPage() {
     enabled: status.data?.active != null && activeIdentity != null,
   });
 
+  // Function-anchored comments for the active node. The list is keyed
+  // on the analyzed file/identity so it refreshes whenever the
+  // reviewer focuses or digs to a different node.
+  const activeFilePath = activeNodeQuery.data?.analyzed.filePath ?? null;
+  const commentsQuery = useQuery({
+    queryKey: ['walkthrough', 'listComments', activeIdentity, activeFilePath],
+    queryFn: () =>
+      activeIdentity && activeFilePath
+        ? trpcClient.review.listComments.query({
+            kind: 'function',
+            filePath: activeFilePath,
+            functionIdentity: activeIdentity,
+          })
+        : Promise.resolve([]),
+    enabled: status.data?.active != null && activeIdentity != null && activeFilePath != null,
+  });
+
   const invalidateAll = useCallback(
     () =>
       Promise.all([
@@ -191,6 +208,35 @@ export function WalkthroughPage() {
     mutationFn: (nodeIdentity: string) =>
       trpcClient.review.promoteScopedApproval.mutate({ nodeIdentity, pathId }),
     onSettled: invalidateAll,
+  });
+
+  const invalidateComments = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['walkthrough', 'listComments'] }),
+    [queryClient],
+  );
+
+  const addCommentMutation = useMutation({
+    mutationFn: (input: { filePath: string; functionIdentity: string; body: string }) =>
+      trpcClient.review.addComment.mutate({
+        anchor: {
+          kind: 'function',
+          filePath: input.filePath,
+          functionIdentity: input.functionIdentity,
+        },
+        body: input.body,
+      }),
+    onSettled: invalidateComments,
+  });
+
+  const updateCommentMutation = useMutation({
+    mutationFn: (input: { id: string; body: string }) =>
+      trpcClient.review.updateComment.mutate({ id: input.id, body: input.body }),
+    onSettled: invalidateComments,
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: (id: string) => trpcClient.review.deleteComment.mutate({ id }),
+    onSettled: invalidateComments,
   });
 
   const moveFocus = useCallback(
@@ -417,6 +463,35 @@ export function WalkthroughPage() {
                   }}
                   onPromote={() => {
                     promoteMutation.mutate(activeIdentity);
+                  }}
+                />
+              )}
+              {activeIdentity && activeNode && (
+                <CommentPanel
+                  comments={commentsQuery.data ?? []}
+                  isLoading={commentsQuery.isLoading}
+                  isPending={
+                    addCommentMutation.isPending ||
+                    updateCommentMutation.isPending ||
+                    deleteCommentMutation.isPending
+                  }
+                  error={
+                    addCommentMutation.error ??
+                    updateCommentMutation.error ??
+                    deleteCommentMutation.error
+                  }
+                  onAdd={(body) => {
+                    addCommentMutation.mutate({
+                      filePath: activeNode.analyzed.filePath,
+                      functionIdentity: activeIdentity,
+                      body,
+                    });
+                  }}
+                  onUpdate={(id, body) => {
+                    updateCommentMutation.mutate({ id, body });
+                  }}
+                  onDelete={(id) => {
+                    deleteCommentMutation.mutate(id);
                   }}
                 />
               )}
@@ -955,6 +1030,171 @@ function ScopeRadio(props: {
       </span>
       <span className="font-mono text-[0.625rem] text-text-tertiary">{props.sublabel}</span>
     </label>
+  );
+}
+
+type CommentRow = {
+  readonly id: string;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+};
+
+function CommentPanel(props: {
+  comments: ReadonlyArray<CommentRow>;
+  isLoading: boolean;
+  isPending: boolean;
+  error: unknown;
+  onAdd: (body: string) => void;
+  onUpdate: (id: string, body: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  return (
+    <Panel>
+      <PanelHeader tone="sunken">
+        <DraftingLabel size="sm">FIG. M · COMMENTS</DraftingLabel>
+        <div className="flex-1" />
+        <DraftingLabel size="xs">{props.comments.length}</DraftingLabel>
+      </PanelHeader>
+      {props.comments.length > 0 && (
+        <ul className="divide-y divide-dashed divide-border" data-testid="walkthrough-comment-list">
+          {props.comments.map((c) => (
+            <CommentItem
+              key={c.id}
+              comment={c}
+              isPending={props.isPending}
+              onUpdate={(body) => props.onUpdate(c.id, body)}
+              onDelete={() => props.onDelete(c.id)}
+            />
+          ))}
+        </ul>
+      )}
+      <PanelBody>
+        <textarea
+          name="comment-draft"
+          rows={2}
+          placeholder="Add a comment — observations, questions, follow-ups."
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          disabled={props.isPending}
+          className="block w-full resize-y border border-border-strong bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-primary"
+          data-testid="walkthrough-comment-draft"
+        />
+        {props.error !== null && props.error !== undefined && (
+          <div className="mt-2 text-sm text-error" data-testid="walkthrough-comment-error">
+            {String((props.error as Error).message ?? props.error)}
+          </div>
+        )}
+      </PanelBody>
+      <div className="flex items-center gap-2 border-t border-border bg-surface-sunken px-3.5 py-2">
+        {props.isLoading && <span className="font-mono text-xs text-text-tertiary">Loading…</span>}
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => {
+            const trimmed = draft.trim();
+            if (!trimmed) return;
+            props.onAdd(trimmed);
+            setDraft('');
+          }}
+          disabled={props.isPending || draft.trim() === ''}
+          className="border border-primary bg-primary px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-inverse hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="walkthrough-comment-add"
+        >
+          Add comment
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
+function CommentItem(props: {
+  comment: CommentRow;
+  isPending: boolean;
+  onUpdate: (body: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(props.comment.body);
+  const updated = props.comment.updatedAt !== props.comment.createdAt;
+  const datestamp = new Date(props.comment.updatedAt).toLocaleString();
+
+  return (
+    <li
+      className="flex flex-col gap-1.5 px-3.5 py-2"
+      data-testid={`walkthrough-comment-item-${props.comment.id}`}
+    >
+      {editing ? (
+        <textarea
+          rows={2}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          disabled={props.isPending}
+          className="block w-full resize-y border border-border-strong bg-surface px-2 py-1 font-mono text-sm text-text-primary outline-none focus:border-primary"
+          data-testid={`walkthrough-comment-edit-${props.comment.id}`}
+        />
+      ) : (
+        <p className="whitespace-pre-wrap font-mono text-sm text-text-primary">
+          {props.comment.body}
+        </p>
+      )}
+      <div className="flex items-center gap-2 font-mono text-[0.625rem] uppercase tracking-widest text-text-tertiary">
+        <span>{updated ? 'edited' : 'added'}</span>
+        <span>{datestamp}</span>
+        <div className="flex-1" />
+        {editing ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                const trimmed = draft.trim();
+                if (!trimmed) return;
+                props.onUpdate(trimmed);
+                setEditing(false);
+              }}
+              disabled={props.isPending || draft.trim() === ''}
+              className="border border-primary bg-transparent px-2 py-0.5 text-primary hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid={`walkthrough-comment-save-${props.comment.id}`}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(props.comment.body);
+                setEditing(false);
+              }}
+              disabled={props.isPending}
+              className="border border-border-strong bg-transparent px-2 py-0.5 text-text-secondary hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              disabled={props.isPending}
+              className="border border-border-strong bg-transparent px-2 py-0.5 text-text-secondary hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid={`walkthrough-comment-edit-button-${props.comment.id}`}
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onDelete()}
+              disabled={props.isPending}
+              className="border border-reject-600 bg-transparent px-2 py-0.5 text-reject-600 hover:bg-reject-soft disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid={`walkthrough-comment-delete-${props.comment.id}`}
+            >
+              Delete
+            </button>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 
