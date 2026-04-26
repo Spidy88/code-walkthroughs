@@ -20,6 +20,8 @@
     "dev": "concurrently -n server,web -c blue,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
     "dev:server": "pnpm --filter @cw/server dev",
     "dev:web": "pnpm --filter @cw/web dev",
+    "e2e:up": "bash scripts/e2e-up.sh",
+    "e2e:down": "bash scripts/e2e-down.sh",
     "db:migrate": "pnpm --filter @cw/server db:migrate",
     "db:generate": "pnpm --filter @cw/server db:generate",
     "db:studio": "pnpm --filter @cw/server db:studio",
