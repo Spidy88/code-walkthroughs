@@ -83,6 +83,13 @@ export type AnalysisInput = {
   }[];
   readonly llm?: AnalysisLlmCallback;
   readonly signal?: AbortSignal;
+  /**
+   * Reviewer-supplied path_branch answers from prior runs, keyed by
+   * `branchKey(entryNodeIdentity, callerIdentity)` (see paths/detect.ts).
+   * Path detection consults these to pick the chosen callee instead
+   * of defaulting to the first resolvable one.
+   */
+  readonly branchAnswers?: ReadonlyMap<string, string>;
 };
 
 export type AnalysisOutput = {

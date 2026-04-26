@@ -106,11 +106,13 @@ export {
 export type {
   AnswerPrepQuestionInput,
   GetPrepQuestionInput,
+  ListForPathInput,
   ListPrepQuestionsInput,
 } from './schemas/prep.ts';
 export {
   answerPrepQuestionInputSchema,
   getPrepQuestionInputSchema,
+  listForPathInputSchema,
   listPrepQuestionsInputSchema,
   prepAnswerPayloadSchema,
   prepQuestionKindSchema,

@@ -2,7 +2,9 @@ import { basename } from 'node:path';
 import { jsTsAdapter } from '@cw/adapters';
 import { type AnalysisOutput, runAnalysis } from '@cw/analyzer';
 import type { AnalysisRunSummary, AnalysisStage, CodebaseId, ProjectMeta } from '@cw/shared';
+import { eq } from 'drizzle-orm';
 import type { OpenedCodebase } from '../codebase/open.ts';
+import { prepAnswers } from '../db/schema/state/prep-answers.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { createAnalyzerCallbacks } from '../llm/pipelines.ts';
 import type { Logger } from '../logger.ts';
@@ -54,11 +56,19 @@ export async function runCodebaseAnalysis(
 
   const analyzerCallbacks = createAnalyzerCallbacks(llmClient);
 
+  // Load any prior path_branch answers and feed them in so the
+  // analyzer honours the reviewer's chosen branch rather than the
+  // default first-resolvable callee. (Stage 9B: classification
+  // answers feed back via the cache row, branch answers feed back
+  // here.)
+  const branchAnswers = await loadBranchAnswers(codebase);
+
   const output = await runAnalysis(jsTsAdapter, {
     project,
     files: collected.map((f) => ({ filePath: f.filePath, content: f.content })),
     llm: analyzerCallbacks,
     signal,
+    branchAnswers,
   });
 
   emit({ stage: 'persisting', fileCount: collected.length });
@@ -77,4 +87,19 @@ export async function runCodebaseAnalysis(
   log.info(summary, 'analysis complete');
   emit({ stage: 'completed', fileCount: collected.length, summary });
   return { output, summary };
+}
+
+async function loadBranchAnswers(codebase: OpenedCodebase): Promise<Map<string, string>> {
+  const rows = await codebase.dbs.state
+    .select()
+    .from(prepAnswers)
+    .where(eq(prepAnswers.questionKind, 'path_branch'));
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const a = row.answer as { kind?: string; chosenIdentity?: string };
+    if (a?.kind === 'path_branch' && typeof a.chosenIdentity === 'string') {
+      map.set(row.questionKey, a.chosenIdentity);
+    }
+  }
+  return map;
 }

@@ -20,10 +20,23 @@ export type PrepQuestionWithAnswer = PrepQuestion & {
 
 export type PrepService = {
   list(input: { includeAnswered: boolean }): Promise<PrepQuestionWithAnswer[]>;
+  /**
+   * Pending path_branch questions for a given path. Used by the
+   * walkthrough page to inject the branch composer inline above the
+   * canvas when the focused node is a caller with a question.
+   */
+  listForPath(input: { pathId: string }): Promise<PrepQuestionWithAnswer[]>;
   get(key: string): Promise<PrepQuestionWithAnswer | null>;
   answer(input: { key: string; answer: PrepAnswerPayload; now: Date }): Promise<{
     answered: boolean;
     appliedClassification: Classification | null;
+    /**
+     * True when the answer can only be honoured by re-running
+     * analysis (e.g., path_branch — the path_nodes table needs to
+     * be re-materialised with the chosen branch). The client kicks
+     * that off immediately after the answer returns.
+     */
+    requiresReanalysis: boolean;
   }>;
 };
 
@@ -66,6 +79,22 @@ export function createPrepService(input: {
       return merged;
     },
 
+    async listForPath({ pathId }) {
+      const [questions, answers] = await Promise.all([
+        cache.select().from(prepQuestions),
+        state.select().from(prepAnswers),
+      ]);
+      const answerByKey = new Map(answers.map((a) => [a.questionKey, a]));
+      return questions
+        .filter((q) => {
+          if (q.kind !== 'path_branch') return false;
+          const ctx = q.context as { readonly pathId?: string };
+          return ctx.pathId === pathId;
+        })
+        .map((q) => rowToQuestion(q, answerByKey.get(q.key) ?? null))
+        .filter((q) => q.answer === null);
+    },
+
     async get(key) {
       const [q] = await cache.select().from(prepQuestions).where(eq(prepQuestions.key, key));
       if (!q) return null;
@@ -75,12 +104,12 @@ export function createPrepService(input: {
 
     async answer({ key, answer, now }) {
       const [q] = await cache.select().from(prepQuestions).where(eq(prepQuestions.key, key));
-      if (!q) return { answered: false, appliedClassification: null };
+      if (!q) return { answered: false, appliedClassification: null, requiresReanalysis: false };
       // Reject mismatches early so the cache doesn't drift on a
       // shape-incompatible payload (e.g., `path_branch` answer on a
       // `classification` question).
       if (answer.kind !== q.kind) {
-        return { answered: false, appliedClassification: null };
+        return { answered: false, appliedClassification: null, requiresReanalysis: false };
       }
 
       const ts = now.toISOString();
@@ -104,10 +133,15 @@ export function createPrepService(input: {
         });
       }
 
-      // Feedback loop into cache.db. Today only the classification
-      // path is wired; other kinds park their answer for chunk 9B's
-      // path-rematerialization etc.
+      // Feedback loop into cache.db.
+      //  - classification: rewrite the cache row in place (cheap, no
+      //    re-analysis needed).
+      //  - path_branch: only the analyzer can re-walk the path with
+      //    the chosen callee. We flag requiresReanalysis so the
+      //    client kicks off analysis.run once the answer is
+      //    persisted.
       let applied: Classification | null = null;
+      let requiresReanalysis = false;
       if (answer.kind === 'classification' && q.kind === 'classification') {
         const ctx = q.context as { readonly nodeIdentity: string };
         await cache
@@ -122,9 +156,11 @@ export function createPrepService(input: {
           })
           .where(eq(classifications.nodeIdentity, ctx.nodeIdentity));
         applied = answer.classification;
+      } else if (answer.kind === 'path_branch' && q.kind === 'path_branch') {
+        requiresReanalysis = true;
       }
 
-      return { answered: true, appliedClassification: applied };
+      return { answered: true, appliedClassification: applied, requiresReanalysis };
     },
   };
 }

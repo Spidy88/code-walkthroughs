@@ -159,6 +159,16 @@ export function WalkthroughPage() {
     enabled: status.data?.active != null && activeIdentity != null,
   });
 
+  // Pending path_branch prep questions for this path. The walkthrough
+  // injects an inline composer above the canvas when the focused node
+  // is a caller with a question (spec §6.2 mid-walkthrough prep
+  // injection).
+  const pathBranchQuestionsQuery = useQuery({
+    queryKey: ['walkthrough', 'pathBranchQuestions', pathId],
+    queryFn: () => trpcClient.prep.listForPath.query({ pathId }),
+    enabled: status.data?.active != null,
+  });
+
   // All comments anchored within the active function — both
   // function-level and any line-range comments inside its body. Keyed
   // on the file/identity so it refreshes whenever the reviewer
@@ -215,6 +225,29 @@ export function WalkthroughPage() {
     mutationFn: (nodeIdentity: string) =>
       trpcClient.review.promoteScopedApproval.mutate({ nodeIdentity, pathId }),
     onSettled: invalidateAll,
+  });
+
+  // Path-branch answer: persist the chosen callee, then re-run the
+  // analysis so detectPaths re-walks the path with the answer
+  // honoured. The mutation only resolves once analysis completes, so
+  // the walkthrough's path query refetches against the new path_nodes.
+  const answerBranchMutation = useMutation({
+    mutationFn: async (input: { key: string; chosenIdentity: string }) => {
+      const result = await trpcClient.prep.answerQuestion.mutate({
+        key: input.key,
+        answer: { kind: 'path_branch', chosenIdentity: input.chosenIdentity },
+      });
+      if (result.requiresReanalysis) {
+        await trpcClient.analysis.run.mutate({});
+      }
+      return result;
+    },
+    onSettled: async () => {
+      await Promise.all([
+        invalidateAll(),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'pathBranchQuestions'] }),
+      ]);
+    },
   });
 
   const invalidateComments = useCallback(
@@ -421,6 +454,18 @@ export function WalkthroughPage() {
     );
   }
 
+  // Find the path_branch question that targets the *currently focused
+  // path node* (not a dug-in callee). The mid-walkthrough injection
+  // only fires while standing on a fork — digging into a callee is
+  // already a manual override of the default.
+  const branchQuestions = (pathBranchQuestionsQuery.data ??
+    []) as ReadonlyArray<PathBranchPrepQuestion>;
+  const inlineBranchQuestion =
+    digStack.length === 0 && focusedPathNode
+      ? (branchQuestions.find((q) => q.context.callerIdentity === focusedPathNode.nodeIdentity) ??
+        null)
+      : null;
+
   const comments = (commentsQuery.data ?? []) as ReadonlyArray<CommentRow>;
   const lineCommentRanges: ReadonlyArray<LineRange> = comments
     .filter(
@@ -477,6 +522,20 @@ export function WalkthroughPage() {
                   runtimeState={pendingDig.runtimeState}
                   onSkip={() => setPendingDig(null)}
                   onReexamine={() => digInto(pendingDig.calleeIdentity)}
+                />
+              )}
+              {inlineBranchQuestion && (
+                <PathBranchPrompt
+                  question={inlineBranchQuestion}
+                  callees={callees}
+                  isPending={answerBranchMutation.isPending}
+                  error={answerBranchMutation.error}
+                  onAnswer={(chosen) =>
+                    answerBranchMutation.mutate({
+                      key: inlineBranchQuestion.key,
+                      chosenIdentity: chosen,
+                    })
+                  }
                 />
               )}
               <CanvasLineSelectionProvider
@@ -1127,6 +1186,19 @@ function ScopeRadio(props: {
   );
 }
 
+type PathBranchPrepQuestion = {
+  readonly key: string;
+  readonly kind: 'path_branch';
+  readonly context: {
+    readonly kind: 'path_branch';
+    readonly pathId: string;
+    readonly callerIdentity: string;
+    readonly candidates: readonly string[];
+  };
+  readonly answer: unknown;
+  readonly answeredAt: string | null;
+};
+
 type CommentAnchor =
   | { readonly kind: 'file'; readonly filePath: string }
   | {
@@ -1320,6 +1392,61 @@ function CommentItem(props: {
         )}
       </div>
     </li>
+  );
+}
+
+function PathBranchPrompt(props: {
+  question: PathBranchPrepQuestion;
+  callees: ReadonlyArray<Callee>;
+  isPending: boolean;
+  error: unknown;
+  onAnswer: (chosenIdentity: string) => void;
+}) {
+  const { question } = props;
+  // Resolve names from the callees query if available; fall back to
+  // the trailing path segment so the buttons are still readable.
+  const labelFor = (id: string) => {
+    const callee = props.callees.find((c) => c.nodeIdentity === id);
+    return callee?.analyzed?.name ?? id.split(':').at(-1) ?? id;
+  };
+  return (
+    <div
+      className="flex flex-col gap-2 border border-info-600 bg-info-soft px-3 py-2"
+      data-testid="walkthrough-path-branch-prompt"
+      data-question-key={question.key}
+    >
+      <div className="flex items-center gap-2">
+        <DraftingLabel size="xs" tone="primary">
+          PREP · BRANCH
+        </DraftingLabel>
+        <span className="font-mono text-xs text-text-primary">
+          this node calls {question.context.candidates.length} resolvable functions — which should
+          this path follow?
+        </span>
+        {props.isPending && (
+          <span className="font-mono text-[0.625rem] text-text-tertiary">re-analyzing…</span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {question.context.candidates.map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => props.onAnswer(id)}
+            disabled={props.isPending}
+            className="border border-primary bg-surface px-3 py-1 font-mono text-xs uppercase tracking-widest text-primary hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid={`walkthrough-path-branch-candidate-${id}`}
+          >
+            {labelFor(id)}
+          </button>
+        ))}
+      </div>
+      {props.error !== null && props.error !== undefined && (
+        <div className="text-sm text-error" data-testid="walkthrough-path-branch-error">
+          {String((props.error as Error).message ?? props.error)}
+        </div>
+      )}
+    </div>
   );
 }
 

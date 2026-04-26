@@ -1,6 +1,7 @@
 import {
   answerPrepQuestionInputSchema,
   getPrepQuestionInputSchema,
+  listForPathInputSchema,
   listPrepQuestionsInputSchema,
 } from '@cw/shared';
 import { TRPCError } from '@trpc/server';
@@ -17,6 +18,14 @@ export const prepRouter = router({
       });
       return svc.list({ includeAnswered: input.includeAnswered ?? false });
     }),
+
+  listForPath: scopedProcedure.input(listForPathInputSchema).query(async ({ ctx, input }) => {
+    const svc = createPrepService({
+      cache: ctx.codebase.dbs.cache,
+      state: ctx.codebase.dbs.state,
+    });
+    return svc.listForPath({ pathId: input.pathId });
+  }),
 
   getQuestion: scopedProcedure.input(getPrepQuestionInputSchema).query(async ({ ctx, input }) => {
     const svc = createPrepService({

@@ -11,7 +11,7 @@ export async function runAnalysis(
   adapter: LanguageAdapter,
   input: AnalysisInput,
 ): Promise<AnalysisOutput> {
-  const { project, files, llm, signal } = input;
+  const { project, files, llm, signal, branchAnswers } = input;
 
   const parsedFiles: ParseOutput[] = [];
   for (const file of files) {
@@ -67,14 +67,15 @@ export async function runAnalysis(
     f.detectEntryPoints({ project, files: resolvedFiles }),
   );
 
-  const { paths, pathNodes } = detectPaths({
+  const { paths, pathNodes, branchQuestions } = detectPaths({
     entryPoints,
     files: resolvedFiles,
     projectId: project.id,
     ...(signal !== undefined ? { signal } : {}),
+    ...(branchAnswers !== undefined ? { branchAnswers } : {}),
   });
 
-  const prepQuestions = generateStage3PrepQuestions({ classifications });
+  const prepQuestions = [...generateStage3PrepQuestions({ classifications }), ...branchQuestions];
 
   return {
     project,

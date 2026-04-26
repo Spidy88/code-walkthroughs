@@ -102,6 +102,69 @@ describe('runAnalysis — LLM disabled', () => {
     expect(edge?.calleeIdentity).toBe('proj:src/services/users.ts:listUsers');
   });
 
+  // Chunk 9B — when a path node has multiple resolvable callees, the
+  // analyzer must (a) emit a `path_branch` prep question with the
+  // candidates, and (b) honour a reviewer-supplied branch answer when
+  // present rather than defaulting to the first resolvable callee.
+  test('emits path_branch question on multi-callee node and honours branchAnswers', async () => {
+    const files = [
+      {
+        filePath: 'src/server.ts',
+        content: `
+          import express from 'express';
+          import { left } from './services/left.ts';
+          import { right } from './services/right.ts';
+          const app = express();
+          app.get('/x', async function handleX(_req, res) {
+            await left();
+            await right();
+            res.json({});
+          });
+        `,
+      },
+      {
+        filePath: 'src/services/left.ts',
+        content: 'export async function left() { return 1; }',
+      },
+      {
+        filePath: 'src/services/right.ts',
+        content: 'export async function right() { return 2; }',
+      },
+    ];
+
+    // Default run: branch question emitted, default path follows the
+    // first resolvable callee (left).
+    const defaultRun = await runAnalysis(jsTsAdapter, { project, files });
+    const branchQs = defaultRun.prepQuestions.filter((q) => q.kind === 'path_branch');
+    expect(branchQs).toHaveLength(1);
+    const ctx = branchQs[0]?.context as {
+      kind: 'path_branch';
+      callerIdentity: string;
+      candidates: readonly string[];
+    };
+    expect(ctx.candidates.length).toBeGreaterThanOrEqual(2);
+    expect(ctx.candidates.some((c) => c.endsWith(':left'))).toBe(true);
+    expect(ctx.candidates.some((c) => c.endsWith(':right'))).toBe(true);
+    const defaultPath = defaultRun.pathNodes
+      .filter((n) => n.pathId === defaultRun.paths[0]?.id)
+      .map((n) => n.nodeIdentity);
+    expect(defaultPath.some((id) => id.endsWith(':left'))).toBe(true);
+
+    // Re-run with the answer "follow right". The branch question's
+    // key is stable across runs, so the answer keys match.
+    const branchAnswers = new Map<string, string>();
+    const key = branchQs[0]?.key ?? '';
+    const rightCandidate = ctx.candidates.find((c) => c.endsWith(':right')) ?? '';
+    branchAnswers.set(key, rightCandidate);
+
+    const answeredRun = await runAnalysis(jsTsAdapter, { project, files, branchAnswers });
+    const answeredPath = answeredRun.pathNodes
+      .filter((n) => n.pathId === answeredRun.paths[0]?.id)
+      .map((n) => n.nodeIdentity);
+    expect(answeredPath.some((id) => id.endsWith(':right'))).toBe(true);
+    expect(answeredPath.some((id) => id.endsWith(':left'))).toBe(false);
+  });
+
   test('no LLM callback means no architectural hints', async () => {
     const result = await runAnalysis(jsTsAdapter, {
       project,
