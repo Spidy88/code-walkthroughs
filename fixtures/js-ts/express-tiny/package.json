@@ -1,0 +1,13 @@
+{
+  "name": "express-tiny",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tiny Express demo used as a fixture for the analyzer",
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx src/server.ts"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}
