@@ -349,6 +349,40 @@ A chunk is done when **all** of the following are true:
 
 If any of these are false, the chunk is in progress, not done.
 
+## Bug → regression test rule
+
+**Every bug we find gets a test that would have caught it before we ship the fix.** The test is part of the same commit as the fix; no "I'll add the test later." This is a hard rule, not a suggestion — the value of the bug fix compounds when the test prevents the regression.
+
+The shape:
+
+1. Reproduce the bug as a test that fails on `main`.
+2. Apply the fix; the test now passes.
+3. Both land in the same commit.
+4. The test docstring or comment explains *what bug it caught*, in one or two sentences. Future readers should understand why this specific shape is being asserted, not just that it is.
+
+```ts
+// Regression — bug discovered against the express-tiny fixture in chunk 5.5:
+// when routes were registered inside a wrapping function, the parser emitted
+// both a lexical-scope edge and a handler-attached edge, so the adapter
+// counted each route twice. The original test used top-level app.get calls
+// where only the handler-attached edge fires, so the bug was invisible.
+test('registers routes inside a wrapping function — counts each route once', () => {
+  // ...
+});
+```
+
+### Why this rule exists
+
+- Bugs that escape testing once will escape testing again. The fix without a test is half a fix.
+- The diff between "test that catches the bug" and "no test for that case" is usually one or two lines. It's almost free.
+- Comments explaining *why* a specific assertion matters keep the test resilient when future refactors change the surrounding shape.
+
+### Use bugs as input to the test-writing workflow, not just the codebase
+
+After fixing, ask one question: **was the original test shape too narrow to catch this?** If so, the fix is more than the bug fix — it's also widening the test to use a more realistic shape. The express adapter bug is the canonical example: the test used the simplest possible Express invocation (top-level `app.get`), and real code uses the wrapped pattern (`function register(app) { app.get(...) }`). The narrower test shape is what let the bug ship. Prefer realistic shapes when adding new tests.
+
+This isn't a hard rule for every test — sometimes the simplest shape is the right shape. But for **integration-style tests of analyzer / adapter / framework behavior**, default to realistic shapes that mirror how real codebases use the API, not the minimum case the API technically permits.
+
 ## Flake policy
 
 - A test that flakes is broken, not "sometimes failing." Open an issue, mark it `test.skip` with a reference to the issue, fix it.

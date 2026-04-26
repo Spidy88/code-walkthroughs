@@ -144,6 +144,24 @@ export const jsTsClassifierSignals: readonly ClassifierSignal[] = [
     },
   },
   {
+    name: 'path:repositories',
+    kind: 'path-pattern',
+    weight: 'medium',
+    match: ({ relativePath }) => {
+      // Common conventions for the data-access layer. Filename suffix
+      // matches things like userRepo.ts / orderRepository.ts even when
+      // the parent dir is `db` rather than `repositories`.
+      const base = relativePath.split('/').at(-1) ?? '';
+      if (
+        /(^|\/)(repositories|repos|repo|dao|dal|db)(\/|$)/.test(relativePath) ||
+        /(Repo|Repository|Dao)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(base)
+      ) {
+        return { classification: 'repository' };
+      }
+      return null;
+    },
+  },
+  {
     name: 'import:db-client',
     kind: 'import-based',
     weight: 'medium',

@@ -65,4 +65,54 @@ describe('express framework adapter', () => {
     });
     expect(expressFrameworkAdapter.detect(project, [file])).toBe(false);
   });
+
+  // Regression — bug discovered in chunk 5.5 against the express-tiny fixture:
+  // when routes were registered inside a wrapping function, the parser emitted
+  // BOTH a lexical-scope edge (registerOrderRoutes → get) AND a handler-attached
+  // edge (handler → get). The adapter counted both, producing 2× the expected
+  // entry points. This shape didn't appear in the original 'detects app.get /
+  // app.post' test because that one called app.get at module top-level, where
+  // there's no containing function and only the handler-attached edge fires.
+  test('registers routes inside a wrapping function — counts each route once', () => {
+    const file = parseJsTs({
+      projectId: 'proj',
+      filePath: 'src/routes/users.ts',
+      content: `
+        import express from 'express';
+        import type { Express } from 'express';
+
+        export function registerUserRoutes(app: Express): void {
+          app.get('/users', async function listAllUsers(_req, res) {
+            res.json([]);
+          });
+
+          app.post('/users', async function createUser(_req, res) {
+            res.status(201).json({});
+          });
+
+          app.delete('/users/:id', async function deleteUser(_req, res) {
+            res.status(204).end();
+          });
+        }
+      `,
+    });
+
+    const entries = expressFrameworkAdapter.detectEntryPoints({
+      project,
+      files: [file],
+    });
+
+    // Three app.method calls inside the wrapping function → exactly three
+    // entry points, not six.
+    expect(entries).toHaveLength(3);
+    const methods = entries.map((e) => e.metadata.method).sort();
+    expect(methods).toEqual(['DELETE', 'GET', 'POST']);
+    // Each entry's nodeIdentity should be the named handler function, not
+    // the wrapping registration function.
+    const callerNames = entries.map((e) => e.nodeIdentity.split(':').at(-1)).sort();
+    expect(callerNames).toEqual(['createUser', 'deleteUser', 'listAllUsers']);
+    for (const entry of entries) {
+      expect(entry.nodeIdentity.split(':').at(-1)).not.toBe('registerUserRoutes');
+    }
+  });
 });

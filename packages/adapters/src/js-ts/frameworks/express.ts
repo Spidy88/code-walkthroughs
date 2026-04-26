@@ -55,6 +55,15 @@ function detectExpressRoutes(input: FrameworkEntryPointInput): readonly EntryPoi
       const method = edge.calleeIdentity?.split(':').at(-1);
       if (!method || !EXPRESS_METHODS.has(method)) continue;
 
+      // The parser emits two edges per `app.method(path, handler)` call:
+      //   1. The function CONTAINING the call → 'method' (lexical-scope edge)
+      //   2. The handler function → 'method' (handler-attached edge)
+      // Only edge 2 represents an actual entry point — edge 1 is just the
+      // registration scope. Counting both produced duplicate entries when
+      // routes were wrapped in a registration function. See regression
+      // test "registers routes inside a wrapping function".
+      if (edge.unresolvedHint !== 'handler-attached') continue;
+
       entries.push({
         id: ulid(),
         kind: 'http_route',
