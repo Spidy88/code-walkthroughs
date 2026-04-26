@@ -298,6 +298,7 @@ export const walkthroughRouter = router({
                   classification: cls.classification,
                   confidence: cls.confidence,
                   justification: cls.justification,
+                  source: cls.source,
                 }
               : null,
             runtimeState: runtime,

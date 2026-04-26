@@ -8,6 +8,7 @@ import {
   type CanvasNodeType,
   Chip,
   type ChipVariant,
+  ClassificationStamp,
   DraftingLabel,
   type LineRange,
   Panel,
@@ -52,6 +53,7 @@ type ClassificationSummary = {
   readonly classification: string;
   readonly confidence: string;
   readonly justification: string | null;
+  readonly source?: string;
 };
 
 type PathNodeRow = {
@@ -978,9 +980,15 @@ function PathSequence(props: {
               >
                 <span className="font-mono text-xs text-text-tertiary w-8">{n.position + 1}.</span>
                 {n.classification && (
-                  <Chip variant={classificationToChipVariant(n.classification.classification)}>
-                    {n.classification.classification.replace(/_/g, ' ').toUpperCase()}
-                  </Chip>
+                  <>
+                    <Chip variant={classificationToChipVariant(n.classification.classification)}>
+                      {n.classification.classification.replace(/_/g, ' ').toUpperCase()}
+                    </Chip>
+                    <ClassificationStamp
+                      source={n.classification.source ?? 'stage1'}
+                      confidence={n.classification.confidence}
+                    />
+                  </>
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="font-mono text-sm text-text-primary truncate">

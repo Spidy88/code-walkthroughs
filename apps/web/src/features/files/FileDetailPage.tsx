@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   Chip,
   type ChipVariant,
+  ClassificationStamp,
   DraftingLabel,
   Panel,
   PanelBody,
@@ -31,7 +32,9 @@ type AnalyzedFn = {
   readonly exported: boolean;
   readonly classification: {
     readonly classification: string;
+    readonly confidence: string;
     readonly justification: string | null;
+    readonly source: string;
   } | null;
   readonly runtimeState: RuntimeState;
 };
@@ -41,7 +44,11 @@ type FilePayload = {
     readonly path: string;
     readonly language: string;
     readonly size: number;
-    readonly classification: { readonly classification: string } | null;
+    readonly classification: {
+      readonly classification: string;
+      readonly confidence: string;
+      readonly source: string;
+    } | null;
     readonly runtimeState: RuntimeState;
   };
   readonly body: string;
@@ -129,9 +136,15 @@ export function FileDetailPage() {
             ← FILES
           </Link>
           {data?.file.classification && (
-            <Chip variant={classificationToChipVariant(data.file.classification.classification)}>
-              {data.file.classification.classification.replace(/_/g, ' ').toUpperCase()}
-            </Chip>
+            <>
+              <Chip variant={classificationToChipVariant(data.file.classification.classification)}>
+                {data.file.classification.classification.replace(/_/g, ' ').toUpperCase()}
+              </Chip>
+              <ClassificationStamp
+                source={data.file.classification.source}
+                confidence={data.file.classification.confidence}
+              />
+            </>
           )}
           <RuntimeChip state={data?.file.runtimeState} />
         </div>
@@ -224,13 +237,19 @@ export function FileDetailPage() {
                       {fn && (
                         <div className="flex items-center gap-1 px-1.5">
                           {fn.classification && (
-                            <Chip
-                              variant={classificationToChipVariant(
-                                fn.classification.classification,
-                              )}
-                            >
-                              {fn.classification.classification.replace(/_/g, ' ').toUpperCase()}
-                            </Chip>
+                            <>
+                              <Chip
+                                variant={classificationToChipVariant(
+                                  fn.classification.classification,
+                                )}
+                              >
+                                {fn.classification.classification.replace(/_/g, ' ').toUpperCase()}
+                              </Chip>
+                              <ClassificationStamp
+                                source={fn.classification.source}
+                                confidence={fn.classification.confidence}
+                              />
+                            </>
                           )}
                           <RuntimeChip state={fn.runtimeState} />
                         </div>

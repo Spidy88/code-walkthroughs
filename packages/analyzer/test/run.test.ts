@@ -172,4 +172,28 @@ describe('runAnalysis — LLM disabled', () => {
     });
     expect(result.architecturalHints).toBeNull();
   });
+
+  // Chunk 11 — LLM degradation contract. With LLM disabled, every
+  // classification row must come from stage1 (deterministic signals).
+  // Stage 2 is the LLM augmentation pass — when no callback is wired,
+  // it must not silently fall back to a different source label.
+  test('LLM-off path leaves classification source as stage1', async () => {
+    const result = await runAnalysis(jsTsAdapter, {
+      project,
+      files: [
+        {
+          filePath: 'src/services/users.ts',
+          content: 'export async function listUsers() { return []; }',
+        },
+        {
+          filePath: 'src/db/userRepo.ts',
+          content: 'export async function selectUserById(id: number) { return { id }; }',
+        },
+      ],
+    });
+    expect(result.classifications.length).toBeGreaterThan(0);
+    for (const c of result.classifications) {
+      expect(c.source).toBe('stage1');
+    }
+  });
 });

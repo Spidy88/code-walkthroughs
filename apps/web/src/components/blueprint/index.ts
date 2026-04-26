@@ -23,6 +23,10 @@ export {
 export { Chip, type ChipProps } from './chip/Chip.tsx';
 export { CHIP_VARIANTS, type ChipVariant, type ChipStyle } from './chip/chip-variants.ts';
 export {
+  ClassificationStamp,
+  type ClassificationStampProps,
+} from './classification-stamp/ClassificationStamp.tsx';
+export {
   CornerTick,
   CornerTicks,
   type CornerTickProps,
