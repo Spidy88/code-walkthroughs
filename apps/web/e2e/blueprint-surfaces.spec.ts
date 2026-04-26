@@ -11,7 +11,7 @@ test.describe('Blueprint Tier-1 surfaces', () => {
     // surfaces showcase D.3 secondary title block.
     const titleBlock = page.locator('div', { hasText: 'DRAWING · CODE_WALKTHROUGHS' }).first();
     await expect(titleBlock).toBeVisible();
-    await expect(page.getByText('chunk-1C', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^chunk-1[A-Z]$/)).toBeVisible();
     await expect(page.getByText('01 / 22', { exact: true })).toBeVisible();
   });
 

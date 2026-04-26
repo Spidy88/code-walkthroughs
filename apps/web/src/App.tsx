@@ -1,16 +1,26 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import {
+  Canvas,
   Chip,
   type ChipVariant,
   DraftingLabel,
   LineGutterBlock,
+  PairedCanvas,
   Panel,
   PanelBody,
   PanelFooter,
   PanelHeader,
   PathBreadcrumb,
   TitleBlock,
+  layoutCanvas,
 } from './components/blueprint/index.ts';
+import {
+  FIXTURE_BASE_EDGES,
+  FIXTURE_BASE_NODES,
+  FIXTURE_EDGES,
+  FIXTURE_NODES,
+} from './dev-fixtures/canvas-fixture.ts';
 import { trpcClient } from './trpc.ts';
 
 export function App() {
@@ -32,7 +42,7 @@ export function App() {
           tagline="Walk the path, not the diff."
           cells={[
             { label: 'DEV', value: 'local' },
-            { label: 'REV', value: 'chunk-1C' },
+            { label: 'REV', value: 'chunk-1D' },
             { label: 'SHEET', value: '01 / 22' },
           ]}
         />
@@ -49,8 +59,41 @@ export function App() {
         <PrimitivesShowcase />
         <SurfacesShowcase />
         <KitchenSink />
+        <CanvasShowcase />
       </div>
     </main>
+  );
+}
+
+function CanvasShowcase() {
+  const layout = useMemo(() => layoutCanvas(FIXTURE_NODES, FIXTURE_EDGES), []);
+  const baseLayout = useMemo(() => layoutCanvas(FIXTURE_BASE_NODES, FIXTURE_BASE_EDGES), []);
+  const headLayout = layout;
+
+  return (
+    <section>
+      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
+        § F · CANVAS (TIER-2)
+      </DraftingLabel>
+      <p className="mb-3 text-sm text-text-secondary">
+        Walkthroughs render on an infinite canvas (xyflow + dagre) as a horizontal tree of
+        call-graph nodes. Below: a fixture path with mixed variants (dispatcher, preamble, focused
+        code node, summaries) and edge styles (resolved, dashed unresolved, dotted handler-attached,
+        dig-into-active).
+      </p>
+      <ShowcaseCard label="F.1 · WALKTHROUGH CANVAS — fixture path">
+        <Canvas nodes={layout.nodes} edges={layout.edges} height={520} />
+      </ShowcaseCard>
+      <ShowcaseCard label="F.2 · PAIRED CANVAS — comparison mode (base vs head)">
+        <PairedCanvas
+          baseLabel="BASE · main"
+          headLabel="HEAD · feat/checkout-v2"
+          base={{ nodes: baseLayout.nodes, edges: baseLayout.edges }}
+          head={{ nodes: headLayout.nodes, edges: headLayout.edges }}
+          height={420}
+        />
+      </ShowcaseCard>
+    </section>
   );
 }
 

@@ -1,3 +1,21 @@
+export {
+  Canvas,
+  CanvasEdge,
+  CanvasNode,
+  PairedCanvas,
+  layoutCanvas,
+  NODE_DIMENSIONS,
+  type CanvasProps,
+  type CanvasNodeType,
+  type CanvasEdgeType,
+  type CanvasNodeData,
+  type CanvasNodeStatus,
+  type CanvasNodeVariant,
+  type CanvasEdgeData,
+  type CanvasEdgeVariant,
+  type LayoutOptions,
+  type PairedCanvasProps,
+} from './canvas/index.ts';
 export { Chip, type ChipProps } from './chip/Chip.tsx';
 export { CHIP_VARIANTS, type ChipVariant, type ChipStyle } from './chip/chip-variants.ts';
 export {
