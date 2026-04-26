@@ -14,7 +14,8 @@
       "**/node_modules",
       "**/coverage",
       "**/*.generated.ts",
-      "**/migrations/**/*.sql"
+      "**/migrations/**/*.sql",
+      "docs/design/raw/**"
     ]
   },
   "formatter": {

@@ -1,0 +1,140 @@
+/*
+ * Design tokens for the Blueprint Draft visual language.
+ * See /docs/engineering/14-design-system.md for rationale.
+ */
+
+@theme {
+  /* Color — paper neutrals (named by hue + weight) */
+  --color-paper-50: #f5f8fb;
+  --color-paper-100: #eaeff6;
+  --color-paper-150: #dbe3ed;
+  --color-paper-200: #c4cfde;
+  --color-paper-300: #9fadc4;
+  --color-paper-400: #7688a4;
+  --color-paper-500: #556680;
+  --color-paper-600: #3c4a60;
+  --color-paper-700: #2a3547;
+  --color-paper-800: #1b2332;
+  --color-paper-900: #0e131d;
+
+  /* Color — primary (blueprint cyan) */
+  --color-primary-50: #e1f3fb;
+  --color-primary-100: #b9e3f5;
+  --color-primary-200: #7ecaea;
+  --color-primary-300: #3fabd9;
+  --color-primary-400: #1b8cbf;
+  --color-primary-500: #0f72a0;
+  --color-primary-600: #0a5a80;
+  --color-primary-700: #074560;
+  --color-primary-800: #053247;
+  --color-primary-900: #031f2d;
+
+  /* Color — semantic state primitives */
+  --color-accent-500: #c93f54;
+  --color-accent-600: #a62d40;
+  --color-approve-500: #2a7a4b;
+  --color-approve-600: #1e5c38;
+  --color-reject-500: #c93f54;
+  --color-reject-600: #a62d40;
+  --color-info-500: #0a5a80;
+  --color-info-600: #074560;
+  --color-warn-500: #b56e00;
+  --color-warn-600: #8c5400;
+  --color-new-500: #4a5fc8;
+  --color-modified-500: #b56e00;
+  --color-stale-500: #7a4a9a;
+  --color-deleted-500: #c93f54;
+
+  /* Color — semantic role aliases */
+  --color-background: var(--color-paper-50);
+  --color-surface: #ffffff;
+  --color-surface-sunken: var(--color-paper-100);
+  --color-border: var(--color-paper-200);
+  --color-border-strong: var(--color-paper-400);
+  --color-text-primary: var(--color-paper-900);
+  --color-text-secondary: var(--color-paper-600);
+  --color-text-tertiary: var(--color-paper-500);
+  --color-text-inverse: #ffffff;
+  --color-primary: var(--color-primary-600);
+  --color-primary-hover: var(--color-primary-700);
+  --color-success: var(--color-approve-600);
+  --color-error: var(--color-reject-600);
+  --color-warning: var(--color-warn-600);
+
+  /* Color — soft state backgrounds */
+  --color-approve-soft: #e3efe7;
+  --color-reject-soft: #f4e3e5;
+  --color-info-soft: #dde9f0;
+  --color-warn-soft: #f3ead5;
+  --color-stale-soft: #eee2f2;
+  --color-primary-soft: var(--color-primary-50);
+
+  /* Color — comparison-mode states */
+  --color-state-contract: var(--color-accent-600);
+  --color-state-contract-soft: var(--color-reject-soft);
+  --color-state-indirect: var(--color-warn-500);
+  --color-state-indirect-soft: var(--color-warn-soft);
+
+  /* Typography */
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --text-xs: 0.6875rem; /* 11px */
+  --text-sm: 0.8125rem; /* 13px */
+  --text-base: 0.9375rem; /* 15px */
+  --text-lg: 1.0625rem; /* 17px */
+  --text-xl: 1.3125rem; /* 21px */
+  --text-2xl: 1.5625rem; /* 25px */
+  --text-3xl: 1.875rem; /* 30px */
+  --text-4xl: 2.25rem; /* 36px */
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+  --leading-code: 1.55;
+
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.05em;
+  --tracking-wider: 0.14em;
+  --tracking-widest: 0.18em;
+
+  /* Borders — sharp corners everywhere except indicators */
+  --radius-none: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-full: 9999px;
+
+  /* Shadows — almost none; second 1px ring preferred over soft drop */
+  --shadow-none: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: 0 0 0 1px rgba(10, 90, 128, 0.12);
+  --shadow-xl: 0 0 0 1px rgba(10, 90, 128, 0.2), 0 8px 24px rgba(14, 19, 29, 0.06);
+
+  /* Motion */
+  --duration-fast: 80ms;
+  --duration-normal: 140ms;
+  --duration-slow: 220ms;
+  --duration-slower: 320ms;
+
+  --ease-default: cubic-bezier(0.3, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Reduced motion: collapse animations */
+@media (prefers-reduced-motion: reduce) {
+  @theme {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --duration-slower: 0ms;
+  }
+}
