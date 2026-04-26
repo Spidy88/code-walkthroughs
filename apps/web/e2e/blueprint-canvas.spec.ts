@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Blueprint Tier-2 canvas', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('Code Walkthroughs', { exact: true })).toBeVisible();
+    await page.goto('/dev/styles');
+    await expect(page.getByText('Blueprint Draft — Reference')).toBeVisible();
   });
 
   test('renders the canvas showcase section', async ({ page }) => {

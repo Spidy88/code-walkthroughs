@@ -2,14 +2,13 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Blueprint Tier-0 primitives', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('Code Walkthroughs', { exact: true })).toBeVisible();
+    await page.goto('/dev/styles');
+    await expect(page.getByText('Blueprint Draft — Reference')).toBeVisible();
   });
 
   test('renders the title block with drafting labels', async ({ page }) => {
-    const titleDrawingLabel = page.getByText('DRAWING · CODE_WALKTHROUGHS');
-    await expect(titleDrawingLabel).toBeVisible();
-    await expect(page.getByText('Walk the path, not the diff.')).toBeVisible();
+    await expect(page.getByText('DRAWING · DEV / STYLES')).toBeVisible();
+    await expect(page.getByText('Blueprint Draft — Reference')).toBeVisible();
   });
 
   test('renders all chip-state variants in the primitives showcase', async ({ page }) => {

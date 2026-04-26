@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import {
   Canvas,
@@ -14,47 +13,27 @@ import {
   PathBreadcrumb,
   TitleBlock,
   layoutCanvas,
-} from './components/blueprint/index.ts';
+} from '../../components/blueprint/index.ts';
 import {
   FIXTURE_BASE_EDGES,
   FIXTURE_BASE_NODES,
   FIXTURE_EDGES,
   FIXTURE_NODES,
-} from './dev-fixtures/canvas-fixture.ts';
-import { trpcClient } from './trpc.ts';
+} from '../../dev-fixtures/canvas-fixture.ts';
 
-export function App() {
-  const status = useQuery({
-    queryKey: ['status'],
-    queryFn: () => trpcClient.app.status.query(),
-  });
-  const recent = useQuery({
-    queryKey: ['recent'],
-    queryFn: () => trpcClient.codebase.listRecent.query(),
-  });
-
+export function DevStylesPage() {
   return (
     <main className="dot-grid min-h-screen p-8">
       <div className="mx-auto max-w-[1280px] space-y-8">
         <TitleBlock
-          drawingLabel="DRAWING · CODE_WALKTHROUGHS"
-          title="Code Walkthroughs"
-          tagline="Walk the path, not the diff."
+          drawingLabel="DRAWING · DEV / STYLES"
+          title="Blueprint Draft — Reference"
+          tagline="Tokens, primitives, surfaces, canvas. Visual reference for /dev only."
           cells={[
             { label: 'DEV', value: 'local' },
-            { label: 'REV', value: 'chunk-1D' },
-            { label: 'SHEET', value: '01 / 22' },
+            { label: 'REV', value: 'phase-A' },
+            { label: 'SHEET', value: 'reference' },
           ]}
-        />
-        <ServerStatusSection
-          status={status.data ?? null}
-          isLoading={status.isLoading}
-          error={status.error}
-        />
-        <RecentCodebasesSection
-          recent={recent.data ?? null}
-          isLoading={recent.isLoading}
-          error={recent.error}
         />
         <PrimitivesShowcase />
         <SurfacesShowcase />
@@ -62,110 +41,6 @@ export function App() {
         <CanvasShowcase />
       </div>
     </main>
-  );
-}
-
-function CanvasShowcase() {
-  const layout = useMemo(() => layoutCanvas(FIXTURE_NODES, FIXTURE_EDGES), []);
-  const baseLayout = useMemo(() => layoutCanvas(FIXTURE_BASE_NODES, FIXTURE_BASE_EDGES), []);
-  const headLayout = layout;
-
-  return (
-    <section>
-      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
-        § F · CANVAS (TIER-2)
-      </DraftingLabel>
-      <p className="mb-3 text-sm text-text-secondary">
-        Walkthroughs render on an infinite canvas (xyflow + dagre) as a horizontal tree of
-        call-graph nodes. Below: a fixture path with mixed variants (dispatcher, preamble, focused
-        code node, summaries) and edge styles (resolved, dashed unresolved, dotted handler-attached,
-        dig-into-active).
-      </p>
-      <ShowcaseCard label="F.1 · WALKTHROUGH CANVAS — fixture path">
-        <Canvas nodes={layout.nodes} edges={layout.edges} height={520} />
-      </ShowcaseCard>
-      <ShowcaseCard label="F.2 · PAIRED CANVAS — comparison mode (base vs head)">
-        <PairedCanvas
-          baseLabel="BASE · main"
-          headLabel="HEAD · feat/checkout-v2"
-          base={{ nodes: baseLayout.nodes, edges: baseLayout.edges }}
-          head={{ nodes: headLayout.nodes, edges: headLayout.edges }}
-          height={420}
-        />
-      </ShowcaseCard>
-    </section>
-  );
-}
-
-function ServerStatusSection(props: {
-  status: { llmEnabled: boolean; active: { absolutePath: string } | null } | null;
-  isLoading: boolean;
-  error: unknown;
-}) {
-  return (
-    <section>
-      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
-        § A · SERVER STATUS
-      </DraftingLabel>
-      <Panel>
-        <PanelBody>
-          {props.isLoading ? (
-            <div className="text-sm text-text-secondary">Loading…</div>
-          ) : props.error ? (
-            <div className="text-sm text-error">Failed to reach server: {String(props.error)}</div>
-          ) : (
-            <dl className="grid grid-cols-[160px_1fr] gap-y-2 text-sm">
-              <dt className="self-center font-mono text-xs uppercase tracking-wider text-text-tertiary">
-                LLM ENABLED
-              </dt>
-              <dd className="text-text-primary">{props.status?.llmEnabled ? 'yes' : 'no'}</dd>
-              <dt className="self-center font-mono text-xs uppercase tracking-wider text-text-tertiary">
-                ACTIVE CODEBASE
-              </dt>
-              <dd className="text-text-primary">{props.status?.active?.absolutePath ?? 'none'}</dd>
-            </dl>
-          )}
-        </PanelBody>
-      </Panel>
-    </section>
-  );
-}
-
-function RecentCodebasesSection(props: {
-  recent: ReadonlyArray<{ hash: string; absolutePath: string; label: string | null }> | null;
-  isLoading: boolean;
-  error: unknown;
-}) {
-  return (
-    <section>
-      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
-        § B · RECENT CODEBASES
-      </DraftingLabel>
-      <Panel>
-        {props.isLoading ? (
-          <PanelBody>
-            <div className="text-sm text-text-secondary">Loading…</div>
-          </PanelBody>
-        ) : props.error ? (
-          <PanelBody>
-            <div className="text-sm text-error">Failed to load recent codebases.</div>
-          </PanelBody>
-        ) : !props.recent || props.recent.length === 0 ? (
-          <PanelBody>
-            <div className="text-sm text-text-tertiary">No codebases yet.</div>
-          </PanelBody>
-        ) : (
-          <ul className="divide-y divide-border">
-            {props.recent.map((row) => (
-              <li key={row.hash} className="flex items-center justify-between px-3.5 py-2 text-sm">
-                <span className="text-text-primary">{row.label ?? row.absolutePath}</span>
-                <span className="font-mono text-xs text-text-tertiary">{row.hash}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-    </section>
   );
 }
 
@@ -435,6 +310,37 @@ function KitchenSink() {
           </PanelBody>
         </Panel>
       </div>
+    </section>
+  );
+}
+
+function CanvasShowcase() {
+  const layout = useMemo(() => layoutCanvas(FIXTURE_NODES, FIXTURE_EDGES), []);
+  const baseLayout = useMemo(() => layoutCanvas(FIXTURE_BASE_NODES, FIXTURE_BASE_EDGES), []);
+
+  return (
+    <section>
+      <DraftingLabel size="sm" weight="bold" className="mb-2 block">
+        § F · CANVAS (TIER-2)
+      </DraftingLabel>
+      <p className="mb-3 text-sm text-text-secondary">
+        Walkthroughs render on an infinite canvas (xyflow + dagre) as a horizontal tree of
+        call-graph nodes. Below: a fixture path with mixed variants (dispatcher, preamble, focused
+        code node, summaries) and edge styles (resolved, dashed unresolved, dotted handler-attached,
+        dig-into-active).
+      </p>
+      <ShowcaseCard label="F.1 · WALKTHROUGH CANVAS — fixture path">
+        <Canvas nodes={layout.nodes} edges={layout.edges} height={520} />
+      </ShowcaseCard>
+      <ShowcaseCard label="F.2 · PAIRED CANVAS — comparison mode (base vs head)">
+        <PairedCanvas
+          baseLabel="BASE · main"
+          headLabel="HEAD · feat/checkout-v2"
+          base={{ nodes: baseLayout.nodes, edges: baseLayout.edges }}
+          head={{ nodes: layout.nodes, edges: layout.edges }}
+          height={420}
+        />
+      </ShowcaseCard>
     </section>
   );
 }

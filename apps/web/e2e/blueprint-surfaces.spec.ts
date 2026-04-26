@@ -2,17 +2,14 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Blueprint Tier-1 surfaces', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('Code Walkthroughs', { exact: true })).toBeVisible();
+    await page.goto('/dev/styles');
+    await expect(page.getByText('Blueprint Draft — Reference')).toBeVisible();
   });
 
   test('renders the title block primitive with cells', async ({ page }) => {
-    // Title block at the top of the page; scope to its DRAWING label to avoid the
-    // surfaces showcase D.3 secondary title block.
-    const titleBlock = page.locator('div', { hasText: 'DRAWING · CODE_WALKTHROUGHS' }).first();
-    await expect(titleBlock).toBeVisible();
-    await expect(page.getByText(/^chunk-1[A-Z]$/)).toBeVisible();
-    await expect(page.getByText('01 / 22', { exact: true })).toBeVisible();
+    await expect(page.getByText('DRAWING · DEV / STYLES')).toBeVisible();
+    await expect(page.getByText('phase-A', { exact: true })).toBeVisible();
+    await expect(page.getByText('reference', { exact: true })).toBeVisible();
   });
 
   test('renders panel variants in the surfaces showcase', async ({ page }) => {
