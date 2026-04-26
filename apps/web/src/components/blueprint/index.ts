@@ -1,10 +1,13 @@
 export {
   Canvas,
   CanvasEdge,
+  CanvasLineSelectionProvider,
   CanvasNode,
   PairedCanvas,
   layoutCanvas,
   NODE_DIMENSIONS,
+  useCanvasLineSelection,
+  type CanvasLineSelection,
   type CanvasProps,
   type CanvasNodeType,
   type CanvasEdgeType,
@@ -14,6 +17,7 @@ export {
   type CanvasEdgeData,
   type CanvasEdgeVariant,
   type LayoutOptions,
+  type LineRange,
   type PairedCanvasProps,
 } from './canvas/index.ts';
 export { Chip, type ChipProps } from './chip/Chip.tsx';

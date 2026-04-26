@@ -2,6 +2,7 @@ import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { Chip } from '../chip/Chip.tsx';
 import { CornerTicks } from '../corner-tick/CornerTick.tsx';
 import { DraftingLabel } from '../drafting-label/DraftingLabel.tsx';
+import { useCanvasLineSelection } from './CanvasLineSelectionContext.tsx';
 import type { CanvasNodeStatus, CanvasNode as CanvasNodeType } from './types.ts';
 
 const STATUS_DOT_COLOR: Record<CanvasNodeStatus, string> = {
@@ -19,10 +20,10 @@ const STATUS_LABEL: Record<CanvasNodeStatus, string> = {
 };
 
 export function CanvasNode(props: NodeProps<CanvasNodeType>) {
-  const { data } = props;
+  const { data, id } = props;
   switch (data.variant) {
     case 'code':
-      return <CodeNode data={data} />;
+      return <CodeNode data={data} id={id} />;
     case 'summary':
       return <SummaryNode data={data} />;
     case 'preamble':
@@ -49,8 +50,9 @@ function NodeHandles() {
   );
 }
 
-function CodeNode(props: { data: CanvasNodeType['data'] }) {
+function CodeNode(props: { data: CanvasNodeType['data']; id: string }) {
   const { data } = props;
+  const selection = useCanvasLineSelection(props.id);
   return (
     <div
       className="relative flex flex-col border bg-surface text-left"
@@ -96,11 +98,13 @@ function CodeNode(props: { data: CanvasNodeType['data'] }) {
         {data.subtitle && <div className="mt-1 text-xs text-text-secondary">{data.subtitle}</div>}
       </div>
       {data.bodyPreview && data.bodyPreview.length > 0 && (
-        <div className="border-t border-dashed border-border px-2.5 py-1.5">
-          <pre className="overflow-x-auto whitespace-pre font-mono text-[0.6875rem] leading-[1.55] text-text-primary">
-            {data.bodyPreview.join('\n')}
-          </pre>
-        </div>
+        <CodeBody
+          lines={data.bodyPreview}
+          startLine={selection?.startLine ?? null}
+          selectedRange={selection?.selectedRange ?? null}
+          commentRanges={selection?.commentRanges ?? []}
+          onLineClick={selection?.onLineClick ?? null}
+        />
       )}
       {data.callsTo && (
         <div className="flex items-center gap-1.5 border-t border-border bg-surface-sunken px-2.5 py-1">
@@ -108,6 +112,82 @@ function CodeNode(props: { data: CanvasNodeType['data'] }) {
           <span className="font-mono text-xs font-semibold text-text-primary">{data.callsTo}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function CodeBody(props: {
+  lines: ReadonlyArray<string>;
+  startLine: number | null;
+  selectedRange: { readonly start: number; readonly end: number } | null;
+  commentRanges: ReadonlyArray<{ readonly start: number; readonly end: number }>;
+  onLineClick: ((line: number, shiftKey: boolean) => void) | null;
+}) {
+  // If we don't know the absolute start line, fall back to the static
+  // <pre> render — gutter line numbers would lie. Keeps the old path
+  // intact for non-walkthrough surfaces (showcase, etc.).
+  if (props.startLine === null || props.onLineClick === null) {
+    return (
+      <div className="border-t border-dashed border-border px-2.5 py-1.5">
+        <pre className="overflow-x-auto whitespace-pre font-mono text-[0.6875rem] leading-[1.55] text-text-primary">
+          {props.lines.join('\n')}
+        </pre>
+      </div>
+    );
+  }
+  const startLine = props.startLine;
+  const onLineClick = props.onLineClick;
+  return (
+    <div
+      className="border-t border-dashed border-border"
+      data-testid="canvas-code-body"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      {props.lines.map((text, idx) => {
+        const lineNumber = startLine + idx;
+        const inSelection =
+          props.selectedRange !== null &&
+          lineNumber >= props.selectedRange.start &&
+          lineNumber <= props.selectedRange.end;
+        const inComment = props.commentRanges.some(
+          (r) => lineNumber >= r.start && lineNumber <= r.end,
+        );
+        return (
+          <div
+            // Source-line numbers within a function are unique within
+            // this body, so they make a stable key.
+            key={lineNumber}
+            className="flex items-stretch font-mono text-[0.6875rem] leading-[1.55]"
+            style={{
+              background: inSelection ? 'var(--color-primary-soft)' : undefined,
+            }}
+            data-line={lineNumber}
+            data-in-selection={inSelection ? 'true' : 'false'}
+            data-in-comment={inComment ? 'true' : 'false'}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onLineClick(lineNumber, e.shiftKey);
+              }}
+              className="border-r border-border px-1.5 text-text-tertiary hover:bg-primary-soft hover:text-primary"
+              style={{
+                background: inComment ? 'var(--color-info-soft)' : undefined,
+                color: inComment ? 'var(--color-info-600)' : undefined,
+                minWidth: 28,
+                textAlign: 'right',
+              }}
+              aria-label={`Select line ${lineNumber}${inComment ? ' (has comment)' : ''}`}
+              data-testid={`canvas-line-gutter-${lineNumber}`}
+            >
+              {lineNumber}
+            </button>
+            <pre className="overflow-x-auto whitespace-pre px-2.5 text-text-primary">{text}</pre>
+          </div>
+        );
+      })}
     </div>
   );
 }

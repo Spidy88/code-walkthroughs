@@ -3,6 +3,7 @@ import {
   clearStatusInputSchema,
   deleteCommentInputSchema,
   listCommentsInputSchema,
+  listFunctionCommentsInputSchema,
   promoteScopedApprovalInputSchema,
   setStatusInputSchema,
   updateCommentInputSchema,
@@ -90,4 +91,11 @@ export const reviewRouter = router({
     const service = createCommentsService(ctx.codebase.dbs.state);
     return service.listForAnchor(input);
   }),
+
+  listFunctionComments: scopedProcedure
+    .input(listFunctionCommentsInputSchema)
+    .query(async ({ ctx, input }) => {
+      const service = createCommentsService(ctx.codebase.dbs.state);
+      return service.listAllForFunction(input);
+    }),
 });

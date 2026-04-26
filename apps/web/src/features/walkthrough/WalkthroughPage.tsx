@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Canvas,
   type CanvasEdgeType,
+  CanvasLineSelectionProvider,
   type CanvasNodeType,
   Chip,
   type ChipVariant,
   DraftingLabel,
+  type LineRange,
   Panel,
   PanelBody,
   PanelHeader,
@@ -113,6 +115,11 @@ export function WalkthroughPage() {
     readonly name: string;
     readonly runtimeState: RuntimeState;
   } | null>(null);
+  // Line selection inside the focused canvas code panel. Plain click
+  // sets a 1-line range; shift-click extends from the existing anchor.
+  // Cleared on focus/dig change so a stale selection from a previous
+  // node doesn't anchor a comment to the wrong file.
+  const [lineSelection, setLineSelection] = useState<LineRange | null>(null);
 
   const status = useQuery({
     queryKey: ['app', 'status'],
@@ -152,16 +159,16 @@ export function WalkthroughPage() {
     enabled: status.data?.active != null && activeIdentity != null,
   });
 
-  // Function-anchored comments for the active node. The list is keyed
-  // on the analyzed file/identity so it refreshes whenever the
-  // reviewer focuses or digs to a different node.
+  // All comments anchored within the active function — both
+  // function-level and any line-range comments inside its body. Keyed
+  // on the file/identity so it refreshes whenever the reviewer
+  // focuses or digs to a different node.
   const activeFilePath = activeNodeQuery.data?.analyzed.filePath ?? null;
   const commentsQuery = useQuery({
-    queryKey: ['walkthrough', 'listComments', activeIdentity, activeFilePath],
+    queryKey: ['walkthrough', 'listFunctionComments', activeIdentity, activeFilePath],
     queryFn: () =>
       activeIdentity && activeFilePath
-        ? trpcClient.review.listComments.query({
-            kind: 'function',
+        ? trpcClient.review.listFunctionComments.query({
             filePath: activeFilePath,
             functionIdentity: activeIdentity,
           })
@@ -211,18 +218,35 @@ export function WalkthroughPage() {
   });
 
   const invalidateComments = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: ['walkthrough', 'listComments'] }),
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'listComments'] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'listFunctionComments'] }),
+      ]),
     [queryClient],
   );
 
   const addCommentMutation = useMutation({
-    mutationFn: (input: { filePath: string; functionIdentity: string; body: string }) =>
+    mutationFn: (input: {
+      filePath: string;
+      functionIdentity: string;
+      body: string;
+      lineRange?: LineRange | null;
+    }) =>
       trpcClient.review.addComment.mutate({
-        anchor: {
-          kind: 'function',
-          filePath: input.filePath,
-          functionIdentity: input.functionIdentity,
-        },
+        anchor: input.lineRange
+          ? {
+              kind: 'line',
+              filePath: input.filePath,
+              functionIdentity: input.functionIdentity,
+              lineStart: input.lineRange.start,
+              lineEnd: input.lineRange.end,
+            }
+          : {
+              kind: 'function',
+              filePath: input.filePath,
+              functionIdentity: input.functionIdentity,
+            },
         body: input.body,
       }),
     onSettled: invalidateComments,
@@ -276,9 +300,38 @@ export function WalkthroughPage() {
         search: { focus: focusPosition, dig: [...digStack, calleeIdentity] },
       });
       setPendingDig(null);
+      setLineSelection(null);
     },
     [navigate, projectId, pathId, focusPosition, digStack],
   );
+
+  const onLineClick = useCallback((line: number, shiftKey: boolean) => {
+    setLineSelection((prev: LineRange | null) => {
+      // Plain click → 1-line range; if it matches the existing 1-line
+      // selection, treat as a toggle and clear.
+      if (!shiftKey || !prev) {
+        if (prev && prev.start === line && prev.end === line) return null;
+        return { start: line, end: line };
+      }
+      // Shift-click → extend the range to cover from the original
+      // anchor (prev.start) to the new line. Swap if the new line is
+      // before the anchor.
+      const anchor = prev.start;
+      const start = Math.min(anchor, line);
+      const end = Math.max(anchor, line);
+      return { start, end };
+    });
+  }, []);
+
+  // Reset selection whenever the active node changes — a selection
+  // anchored to a different function would commit a comment to the
+  // wrong target. Biome's exhaustive-deps thinks the dep is
+  // unnecessary because setLineSelection is stable, but we need the
+  // *change* in identity to retrigger the effect.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity change is the intended trigger
+  useEffect(() => {
+    setLineSelection(null);
+  }, [activeNodeQuery.data?.analyzed.nodeIdentity]);
 
   // The canvas onEdgeClick handler delegates here. If the callee has
   // any prior review, show the Skip / Re-examine prompt rather than
@@ -368,6 +421,14 @@ export function WalkthroughPage() {
     );
   }
 
+  const comments = (commentsQuery.data ?? []) as ReadonlyArray<CommentRow>;
+  const lineCommentRanges: ReadonlyArray<LineRange> = comments
+    .filter(
+      (c): c is CommentRow & { anchor: Extract<CommentAnchor, { kind: 'line' }> } =>
+        c.anchor.kind === 'line',
+    )
+    .map((c) => ({ start: c.anchor.lineStart, end: c.anchor.lineEnd }));
+
   const activeRuntimeState: RuntimeState = activeNode?.runtimeState ??
     focusedPathNode?.runtimeState ?? { kind: 'never_reviewed' };
   const activeName = activeNode?.analyzed.name ?? focusedPathNode?.analyzed?.name ?? '';
@@ -418,25 +479,58 @@ export function WalkthroughPage() {
                   onReexamine={() => digInto(pendingDig.calleeIdentity)}
                 />
               )}
-              <div
-                className="border border-border-strong bg-surface"
-                data-testid="walkthrough-canvas"
-                data-dig-depth={digStack.length}
+              <CanvasLineSelectionProvider
+                value={
+                  activeIdentity && activeNode
+                    ? {
+                        nodeIdentity: activeIdentity,
+                        startLine: activeNode.analyzed.startLine,
+                        selectedRange: lineSelection,
+                        commentRanges: lineCommentRanges,
+                        onLineClick,
+                      }
+                    : null
+                }
               >
-                <Canvas
-                  nodes={layout.nodes}
-                  edges={layout.edges}
-                  height={620}
-                  background="dot-grid"
-                  reactFlowProps={{
-                    onEdgeClick: (_event, edge) => {
-                      if (!edge.id.startsWith(DIG_EDGE_PREFIX)) return;
-                      const callee = edge.target;
-                      if (callee) requestDig(callee, callees);
-                    },
+                <div
+                  className="border border-border-strong bg-surface"
+                  data-testid="walkthrough-canvas"
+                  data-dig-depth={digStack.length}
+                >
+                  <Canvas
+                    nodes={layout.nodes}
+                    edges={layout.edges}
+                    height={620}
+                    background="dot-grid"
+                    reactFlowProps={{
+                      onEdgeClick: (_event, edge) => {
+                        if (!edge.id.startsWith(DIG_EDGE_PREFIX)) return;
+                        const callee = edge.target;
+                        if (callee) requestDig(callee, callees);
+                      },
+                    }}
+                  />
+                </div>
+              </CanvasLineSelectionProvider>
+              {lineSelection && activeIdentity && activeNode && (
+                <LineRangeComposer
+                  range={lineSelection}
+                  isPending={addCommentMutation.isPending}
+                  error={addCommentMutation.error}
+                  onCancel={() => setLineSelection(null)}
+                  onSubmit={(body) => {
+                    addCommentMutation.mutate(
+                      {
+                        filePath: activeNode.analyzed.filePath,
+                        functionIdentity: activeIdentity,
+                        body,
+                        lineRange: lineSelection,
+                      },
+                      { onSuccess: () => setLineSelection(null) },
+                    );
                   }}
                 />
-              </div>
+              )}
               {activeIdentity && activeNode && (
                 <ActionRow
                   activeIdentity={activeIdentity}
@@ -468,7 +562,7 @@ export function WalkthroughPage() {
               )}
               {activeIdentity && activeNode && (
                 <CommentPanel
-                  comments={commentsQuery.data ?? []}
+                  comments={comments}
                   isLoading={commentsQuery.isLoading}
                   isPending={
                     addCommentMutation.isPending ||
@@ -1033,8 +1127,24 @@ function ScopeRadio(props: {
   );
 }
 
+type CommentAnchor =
+  | { readonly kind: 'file'; readonly filePath: string }
+  | {
+      readonly kind: 'function';
+      readonly filePath: string;
+      readonly functionIdentity: string;
+    }
+  | {
+      readonly kind: 'line';
+      readonly filePath: string;
+      readonly functionIdentity: string;
+      readonly lineStart: number;
+      readonly lineEnd: number;
+    };
+
 type CommentRow = {
   readonly id: string;
+  readonly anchor: CommentAnchor;
   readonly body: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -1119,11 +1229,18 @@ function CommentItem(props: {
   const [draft, setDraft] = useState(props.comment.body);
   const updated = props.comment.updatedAt !== props.comment.createdAt;
   const datestamp = new Date(props.comment.updatedAt).toLocaleString();
+  const lineBadge =
+    props.comment.anchor.kind === 'line'
+      ? props.comment.anchor.lineStart === props.comment.anchor.lineEnd
+        ? `L${props.comment.anchor.lineStart}`
+        : `L${props.comment.anchor.lineStart}–${props.comment.anchor.lineEnd}`
+      : null;
 
   return (
     <li
       className="flex flex-col gap-1.5 px-3.5 py-2"
       data-testid={`walkthrough-comment-item-${props.comment.id}`}
+      data-anchor-kind={props.comment.anchor.kind}
     >
       {editing ? (
         <textarea
@@ -1140,6 +1257,14 @@ function CommentItem(props: {
         </p>
       )}
       <div className="flex items-center gap-2 font-mono text-[0.625rem] uppercase tracking-widest text-text-tertiary">
+        {lineBadge && (
+          <span
+            className="border border-info-600 bg-info-soft px-1.5 py-0.5 text-info-600"
+            data-testid={`walkthrough-comment-line-badge-${props.comment.id}`}
+          >
+            {lineBadge}
+          </span>
+        )}
         <span>{updated ? 'edited' : 'added'}</span>
         <span>{datestamp}</span>
         <div className="flex-1" />
@@ -1195,6 +1320,78 @@ function CommentItem(props: {
         )}
       </div>
     </li>
+  );
+}
+
+function LineRangeComposer(props: {
+  range: LineRange;
+  isPending: boolean;
+  error: unknown;
+  onCancel: () => void;
+  onSubmit: (body: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const label =
+    props.range.start === props.range.end
+      ? `Line ${props.range.start}`
+      : `Lines ${props.range.start}–${props.range.end}`;
+  return (
+    <div
+      className="flex flex-col gap-2 border border-info-600 bg-info-soft px-3 py-2"
+      data-testid="walkthrough-line-composer"
+      data-line-start={props.range.start}
+      data-line-end={props.range.end}
+    >
+      <div className="flex items-center gap-2">
+        <DraftingLabel size="xs" tone="primary">
+          COMMENT ON
+        </DraftingLabel>
+        <span className="font-mono text-xs text-text-primary">{label}</span>
+        <span className="font-mono text-[0.625rem] text-text-tertiary">
+          shift-click another line to extend the range
+        </span>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={props.onCancel}
+          disabled={props.isPending}
+          className="border border-border-strong bg-surface px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-text-secondary hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="walkthrough-line-composer-cancel"
+        >
+          Cancel
+        </button>
+      </div>
+      <textarea
+        rows={2}
+        placeholder="What's worth flagging here?"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        disabled={props.isPending}
+        className="block w-full resize-y border border-border-strong bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-primary"
+        data-testid="walkthrough-line-composer-draft"
+      />
+      {props.error !== null && props.error !== undefined && (
+        <div className="text-sm text-error" data-testid="walkthrough-line-composer-error">
+          {String((props.error as Error).message ?? props.error)}
+        </div>
+      )}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            const trimmed = draft.trim();
+            if (!trimmed) return;
+            props.onSubmit(trimmed);
+            setDraft('');
+          }}
+          disabled={props.isPending || draft.trim() === ''}
+          className="border border-primary bg-primary px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-inverse hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="walkthrough-line-composer-submit"
+        >
+          Add comment
+        </button>
+      </div>
+    </div>
   );
 }
 

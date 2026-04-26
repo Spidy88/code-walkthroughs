@@ -23,6 +23,16 @@ export type CommentsService = {
   update(input: { id: string; body: string; now: Date }): Promise<CommentRow | null>;
   remove(input: { id: string; now: Date }): Promise<{ deleted: boolean }>;
   listForAnchor(anchor: CommentAnchor): Promise<CommentRow[]>;
+  /**
+   * Returns every comment anchored within a single function — both
+   * function-level and any line-range comments whose lines lie within
+   * that function. Used by the walkthrough comment panel to show
+   * everything attached to the focused node in one list.
+   */
+  listAllForFunction(input: {
+    filePath: string;
+    functionIdentity: string;
+  }): Promise<CommentRow[]>;
 };
 
 function rowToComment(r: typeof comments.$inferSelect): CommentRow {
@@ -127,6 +137,21 @@ export function createCommentsService(db: StateDb): CommentsService {
         .select()
         .from(comments)
         .where(and(...conditions))
+        .orderBy(asc(comments.createdAt));
+      return rows.map(rowToComment);
+    },
+
+    async listAllForFunction(input) {
+      const rows = await db
+        .select()
+        .from(comments)
+        .where(
+          and(
+            eq(comments.filePath, input.filePath),
+            eq(comments.functionIdentity, input.functionIdentity),
+            isNull(comments.archivedAt),
+          ),
+        )
         .orderBy(asc(comments.createdAt));
       return rows.map(rowToComment);
     },

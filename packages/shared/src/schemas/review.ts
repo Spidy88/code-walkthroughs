@@ -107,3 +107,9 @@ export type DeleteCommentInput = z.infer<typeof deleteCommentInputSchema>;
 
 export const listCommentsInputSchema = commentAnchorSchema;
 export type ListCommentsInput = z.infer<typeof listCommentsInputSchema>;
+
+export const listFunctionCommentsInputSchema = z.object({
+  filePath: z.string().min(1),
+  functionIdentity: z.string().min(1),
+});
+export type ListFunctionCommentsInput = z.infer<typeof listFunctionCommentsInputSchema>;
