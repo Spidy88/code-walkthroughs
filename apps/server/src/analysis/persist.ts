@@ -9,6 +9,7 @@ import {
   pathNodes,
   paths,
   prepQuestions,
+  ruleResults,
 } from '../db/schema/cache/index.ts';
 import type { CollectedFile } from './filesystem.ts';
 
@@ -30,6 +31,7 @@ export async function persistAnalysis(
   await db.delete(paths);
   await db.delete(prepQuestions);
   await db.delete(callEdges);
+  await db.delete(ruleResults);
 
   const contentHashByPath = new Map(
     output.parsedFiles.map((p) => [p.file.path, p.file.contentHash]),
@@ -144,6 +146,18 @@ export async function persistAnalysis(
   );
   if (allEdges.length > 0) {
     await db.insert(callEdges).values(allEdges);
+  }
+
+  if (output.ruleResults.length > 0) {
+    await db.insert(ruleResults).values(
+      output.ruleResults.map((r) => ({
+        ruleId: r.ruleId,
+        nodeIdentity: r.nodeIdentity,
+        kind: r.kind,
+        message: r.message,
+        evaluatedAt: r.evaluatedAt,
+      })),
+    );
   }
 
   if (output.prepQuestions.length > 0) {

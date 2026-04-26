@@ -9,6 +9,7 @@ import type {
   PathNode,
   PrepQuestion,
   ProjectMeta,
+  RuleResult,
 } from '@cw/shared';
 
 export type AnalysisLlmCallback = {
@@ -113,6 +114,7 @@ export type AnalysisOutput = {
   readonly pathNodes: readonly PathNode[];
   readonly prepQuestions: readonly PrepQuestion[];
   readonly architecturalHints: ArchitecturalHints | null;
+  readonly ruleResults: readonly RuleResult[];
 };
 
 export type ClassificationResult = {

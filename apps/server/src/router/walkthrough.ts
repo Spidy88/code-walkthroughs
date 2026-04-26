@@ -12,6 +12,7 @@ import {
   files,
   pathNodes,
   paths,
+  ruleResults,
 } from '../db/schema/cache/index.ts';
 import { reviewStatus } from '../db/schema/state/review.ts';
 import { router, scopedProcedure } from './trpc.ts';
@@ -324,6 +325,28 @@ export const walkthroughRouter = router({
         body,
         functions,
       };
+    }),
+
+  /**
+   * Returns built-in rule results for a node. Read by the
+   * walkthrough checklist sidebar to flip pre-defined items from
+   * UNCHECKED to PASS / FAIL / SKIP.
+   */
+  getRuleResults: scopedProcedure
+    .input(z.object({ nodeIdentity: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const cache = ctx.codebase.dbs.cache;
+      const rows = await cache
+        .select()
+        .from(ruleResults)
+        .where(eq(ruleResults.nodeIdentity, input.nodeIdentity));
+      return rows.map((r) => ({
+        ruleId: r.ruleId,
+        nodeIdentity: r.nodeIdentity,
+        kind: r.kind,
+        message: r.message,
+        evaluatedAt: r.evaluatedAt,
+      }));
     }),
 
   /**

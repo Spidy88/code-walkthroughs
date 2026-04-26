@@ -6,6 +6,7 @@ import { generateStage3PrepQuestions } from './classify/stage3.ts';
 import { detectPaths } from './paths/detect.ts';
 import { resolveCrossFileCallEdges } from './paths/resolve-cross-file.ts';
 import { detectRenameCandidates } from './renames/detect.ts';
+import { evaluateBuiltinRules } from './rules/evaluate.ts';
 import type { AnalysisInput, AnalysisOutput } from './types.ts';
 
 export async function runAnalysis(
@@ -89,6 +90,8 @@ export async function runAnalysis(
     ...renameCandidates,
   ];
 
+  const ruleResults = evaluateBuiltinRules({ classifications, parsedFiles: resolvedFiles });
+
   return {
     project,
     // Expose the resolved-edge view so persistence and downstream consumers
@@ -101,5 +104,6 @@ export async function runAnalysis(
     pathNodes,
     prepQuestions,
     architecturalHints,
+    ruleResults,
   };
 }

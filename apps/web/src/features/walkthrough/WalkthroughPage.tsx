@@ -1650,9 +1650,43 @@ function currentScopeOf(runtime: RuntimeState): 'global' | 'path' | null {
   return null;
 }
 
+type RuleResultRow = {
+  readonly ruleId: string;
+  readonly nodeIdentity: string;
+  readonly kind: 'pass' | 'fail' | 'skip' | 'unchecked' | string;
+  readonly message: string | null;
+};
+
+const RULE_LABEL_BY_ID: Record<string, string> = {
+  'builtin:route_handler:auth_check_present': 'Authentication checked before reaching this handler',
+  'builtin:route_handler:input_validated': 'Input validated against a schema',
+  'builtin:service:single_responsibility': 'Single responsibility',
+  'builtin:repository:narrow_data_access': 'Single responsibility — narrow data access',
+  'builtin:test:has_assertion': 'Test has at least one assertion',
+};
+
 function ChecklistSidebar(props: { focused: PathNodeRow | null; isLoading: boolean }) {
   const classification = props.focused?.classification?.classification ?? null;
   const checklist = useMemo(() => getDefaultChecklist(classification), [classification]);
+  const nodeIdentity = props.focused?.nodeIdentity ?? null;
+
+  const ruleResultsQuery = useQuery({
+    queryKey: ['walkthrough', 'getRuleResults', nodeIdentity],
+    queryFn: () =>
+      nodeIdentity
+        ? trpcClient.walkthrough.getRuleResults.query({ nodeIdentity })
+        : Promise.resolve([]),
+    enabled: nodeIdentity != null,
+  });
+  const ruleResults = (ruleResultsQuery.data ?? []) as ReadonlyArray<RuleResultRow>;
+  // Map rule outcomes onto the static checklist items by *label*.
+  // Built-in rule labels are deliberately matched 1:1 with checklist
+  // strings so the rule engine doesn't need to know about the UI.
+  const resultByLabel = new Map<string, RuleResultRow>();
+  for (const r of ruleResults) {
+    const label = RULE_LABEL_BY_ID[r.ruleId];
+    if (label) resultByLabel.set(label, r);
+  }
 
   return (
     <div className="flex flex-col gap-3" data-testid="walkthrough-sidebar">
@@ -1678,33 +1712,48 @@ function ChecklistSidebar(props: { focused: PathNodeRow | null; isLoading: boole
           className="divide-y divide-dashed divide-border"
           data-testid="walkthrough-checklist-items"
         >
-          {checklist.items.map((item) => (
-            <li key={item.label} className="flex items-start gap-2.5 px-3.5 py-2 text-sm">
-              <UncheckedIndicator />
-              <span className="flex-1 text-text-primary">{item.label}</span>
-              <DraftingLabel size="xs">UNCHECKED</DraftingLabel>
-            </li>
-          ))}
+          {checklist.items.map((item) => {
+            const result = resultByLabel.get(item.label);
+            return (
+              <li
+                key={item.label}
+                className="flex items-start gap-2.5 px-3.5 py-2 text-sm"
+                data-rule-kind={result?.kind ?? 'unchecked'}
+                data-testid={`walkthrough-checklist-item-${result?.ruleId ?? item.label}`}
+              >
+                <RuleIndicator kind={result?.kind ?? 'unchecked'} />
+                <div className="flex-1">
+                  <span className="text-text-primary">{item.label}</span>
+                  {result?.message && (
+                    <div className="mt-0.5 font-mono text-[0.625rem] text-text-tertiary">
+                      {result.message}
+                    </div>
+                  )}
+                </div>
+                <DraftingLabel size="xs">
+                  {(result?.kind ?? 'unchecked').toUpperCase()}
+                </DraftingLabel>
+              </li>
+            );
+          })}
         </ul>
-        <div className="border-t border-border bg-surface-sunken px-3.5 py-2 text-xs text-text-tertiary">
-          Items run when rule evaluation lands (chunk 15). Until then they show
-          <span className="ml-1 font-mono uppercase tracking-wider text-text-tertiary">
-            unchecked
-          </span>{' '}
-          — never claiming pass / fail.
-        </div>
       </Panel>
       {props.isLoading && <div className="font-mono text-xs text-text-tertiary">Loading code…</div>}
     </div>
   );
 }
 
-function UncheckedIndicator() {
+function RuleIndicator(props: { kind: string }) {
+  const cls =
+    props.kind === 'pass'
+      ? 'border border-approve-600 bg-approve-soft'
+      : props.kind === 'fail'
+        ? 'border border-reject-600 bg-reject-soft'
+        : props.kind === 'skip'
+          ? 'border border-info-600 bg-info-soft'
+          : 'border border-dashed border-border-strong';
   return (
-    <span
-      aria-hidden="true"
-      className="mt-0.5 inline-block h-3.5 w-3.5 flex-shrink-0 border border-dashed border-border-strong"
-    />
+    <span aria-hidden="true" className={`mt-0.5 inline-block h-3.5 w-3.5 flex-shrink-0 ${cls}`} />
   );
 }
 
