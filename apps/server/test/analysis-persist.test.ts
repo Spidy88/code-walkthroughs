@@ -46,6 +46,11 @@ function createCacheDb(): ReturnType<typeof drizzle<typeof cacheSchema>> {
       key TEXT PRIMARY KEY, kind TEXT NOT NULL, context TEXT NOT NULL,
       suggestion TEXT, alternatives TEXT NOT NULL, created_at TEXT NOT NULL
     );
+    CREATE TABLE call_edges (
+      caller_identity TEXT NOT NULL, callee_identity TEXT,
+      call_site_line INTEGER NOT NULL, call_site_column INTEGER NOT NULL,
+      unresolved INTEGER NOT NULL, unresolved_hint TEXT, project_id TEXT NOT NULL
+    );
   `);
   return drizzle(sqlite, { schema: cacheSchema });
 }

@@ -78,7 +78,10 @@ export async function runAnalysis(
 
   return {
     project,
-    parsedFiles,
+    // Expose the resolved-edge view so persistence and downstream consumers
+    // see cross-file callees as resolved (not 'cross-file-or-external'). The
+    // node and import lists are unchanged by resolution; only callEdges differ.
+    parsedFiles: resolvedFiles,
     classifications,
     entryPoints,
     paths,

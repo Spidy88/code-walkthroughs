@@ -2,6 +2,7 @@ import type { AnalysisOutput } from '@cw/analyzer';
 import type { CacheDb } from '../db/codebase.ts';
 import {
   analyzedNodes,
+  callEdges,
   classifications,
   entryPoints,
   files,
@@ -28,6 +29,7 @@ export async function persistAnalysis(
   await db.delete(pathNodes);
   await db.delete(paths);
   await db.delete(prepQuestions);
+  await db.delete(callEdges);
 
   const contentHashByPath = new Map(
     output.parsedFiles.map((p) => [p.file.path, p.file.contentHash]),
@@ -124,6 +126,24 @@ export async function persistAnalysis(
         cycleBackToPosition: n.cycleBackToPosition ?? null,
       })),
     );
+  }
+
+  // Persist call edges so walkthrough.getNodeCallees can render the
+  // dig-into affordance without re-parsing source files. Edges are
+  // already resolved (cross-file imports patched) by the analyzer.
+  const allEdges = output.parsedFiles.flatMap((p) =>
+    p.callEdges.map((e) => ({
+      callerIdentity: e.callerIdentity,
+      calleeIdentity: e.calleeIdentity,
+      callSiteLine: e.callSite.line,
+      callSiteColumn: e.callSite.column,
+      unresolved: e.unresolved,
+      unresolvedHint: e.unresolvedHint ?? null,
+      projectId,
+    })),
+  );
+  if (allEdges.length > 0) {
+    await db.insert(callEdges).values(allEdges);
   }
 
   if (output.prepQuestions.length > 0) {

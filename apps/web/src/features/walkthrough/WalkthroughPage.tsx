@@ -34,26 +34,30 @@ type RuntimeState =
       readonly current: { readonly status: ReviewStatus; readonly comment: string | null };
     };
 
+type AnalyzedSummary = {
+  readonly nodeIdentity: string;
+  readonly filePath: string;
+  readonly name: string;
+  readonly kind: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly exported: boolean;
+};
+
+type ClassificationSummary = {
+  readonly classification: string;
+  readonly confidence: string;
+  readonly justification: string | null;
+};
+
 type PathNodeRow = {
   readonly position: number;
   readonly nodeIdentity: string;
   readonly forkGroup: number | null;
   readonly changeKind: string | null;
   readonly cycleBackToPosition: number | null;
-  readonly analyzed: {
-    readonly nodeIdentity: string;
-    readonly filePath: string;
-    readonly name: string;
-    readonly kind: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly exported: boolean;
-  } | null;
-  readonly classification: {
-    readonly classification: string;
-    readonly confidence: string;
-    readonly justification: string | null;
-  } | null;
+  readonly analyzed: AnalyzedSummary | null;
+  readonly classification: ClassificationSummary | null;
   readonly runtimeState: RuntimeState;
 };
 
@@ -68,7 +72,27 @@ type PathPayload = {
   readonly nodes: ReadonlyArray<PathNodeRow>;
 };
 
+type Callee = {
+  readonly nodeIdentity: string;
+  readonly callSite: { readonly line: number; readonly column: number };
+  readonly analyzed: AnalyzedSummary | null;
+  readonly classification: ClassificationSummary | null;
+  readonly runtimeState: RuntimeState;
+};
+
+type CalleesPayload = {
+  readonly callees: ReadonlyArray<Callee>;
+};
+
+type ActiveNodePayload = {
+  readonly analyzed: AnalyzedSummary;
+  readonly classification: ClassificationSummary | null;
+  readonly body: string;
+  readonly runtimeState: RuntimeState;
+};
+
 const MAX_INLINE_BODY_LINES = 14;
+const DIG_EDGE_PREFIX = 'callee-edge:';
 
 export function WalkthroughPage() {
   const { projectId, pathId } = useParams({ from: '/project/$projectId/path/$pathId' });
@@ -76,6 +100,7 @@ export function WalkthroughPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const focusPosition = search.focus ?? 0;
+  const digStack = useMemo(() => search.dig ?? [], [search.dig]);
 
   const status = useQuery({
     queryKey: ['app', 'status'],
@@ -86,6 +111,33 @@ export function WalkthroughPage() {
     queryKey: ['walkthrough', 'getPath', pathId],
     queryFn: () => trpcClient.walkthrough.getPath.query({ pathId }),
     enabled: status.data?.active != null,
+  });
+
+  const data = pathQuery.data as PathPayload | undefined;
+  const nodes = data?.nodes ?? [];
+  const focusedPathNode = nodes.find((n) => n.position === focusPosition) ?? nodes[0] ?? null;
+
+  // The "active" node is the one in focus on the canvas — either the
+  // deepest dig-into entry, or the focused path node when no dig is open.
+  const activeIdentity =
+    digStack.length > 0 ? (digStack.at(-1) ?? null) : (focusedPathNode?.nodeIdentity ?? null);
+
+  const activeNodeQuery = useQuery({
+    queryKey: ['walkthrough', 'getNode', activeIdentity, pathId],
+    queryFn: () =>
+      activeIdentity
+        ? trpcClient.walkthrough.getNode.query({ nodeIdentity: activeIdentity, pathId })
+        : Promise.resolve(null),
+    enabled: status.data?.active != null && activeIdentity != null,
+  });
+
+  const calleesQuery = useQuery({
+    queryKey: ['walkthrough', 'getNodeCallees', activeIdentity, pathId],
+    queryFn: () =>
+      activeIdentity
+        ? trpcClient.walkthrough.getNodeCallees.query({ nodeIdentity: activeIdentity, pathId })
+        : Promise.resolve({ callees: [] }),
+    enabled: status.data?.active != null && activeIdentity != null,
   });
 
   const setStatusMutation = useMutation({
@@ -100,28 +152,23 @@ export function WalkthroughPage() {
         comment: input.comment ?? undefined,
       }),
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNode'] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNodeCallees'] }),
+      ]);
     },
   });
 
   const clearStatusMutation = useMutation({
     mutationFn: (nodeIdentity: string) => trpcClient.review.clear.mutate({ nodeIdentity }),
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNode'] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNodeCallees'] }),
+      ]);
     },
-  });
-
-  const data = pathQuery.data as PathPayload | undefined;
-  const nodes = data?.nodes ?? [];
-  const focusedNode = nodes.find((n) => n.position === focusPosition) ?? nodes[0] ?? null;
-
-  const nodeQuery = useQuery({
-    queryKey: ['walkthrough', 'getNode', focusedNode?.nodeIdentity],
-    queryFn: () =>
-      focusedNode
-        ? trpcClient.walkthrough.getNode.query({ nodeIdentity: focusedNode.nodeIdentity })
-        : Promise.resolve(null),
-    enabled: status.data?.active != null && focusedNode != null,
   });
 
   const moveFocus = useCallback(
@@ -134,6 +181,8 @@ export function WalkthroughPage() {
       navigate({
         to: '/project/$projectId/path/$pathId',
         params: { projectId, pathId },
+        // Advancing the path always exits any dig-into chain — the
+        // reviewer is moving on, not staying inside the call tree.
         search: { focus: next },
       });
     },
@@ -151,7 +200,29 @@ export function WalkthroughPage() {
     [navigate, projectId, pathId],
   );
 
-  // Keyboard shortcuts
+  const digInto = useCallback(
+    (calleeIdentity: string) => {
+      navigate({
+        to: '/project/$projectId/path/$pathId',
+        params: { projectId, pathId },
+        search: { focus: focusPosition, dig: [...digStack, calleeIdentity] },
+      });
+    },
+    [navigate, projectId, pathId, focusPosition, digStack],
+  );
+
+  const popDig = useCallback(() => {
+    if (digStack.length === 0) return;
+    const next = digStack.slice(0, -1);
+    navigate({
+      to: '/project/$projectId/path/$pathId',
+      params: { projectId, pathId },
+      search: next.length > 0 ? { focus: focusPosition, dig: next } : { focus: focusPosition },
+    });
+  }, [navigate, projectId, pathId, focusPosition, digStack]);
+
+  // Keyboard shortcuts. j/k advance the path (and exit any dig); escape
+  // pops one level out of the dig stack.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
@@ -163,21 +234,32 @@ export function WalkthroughPage() {
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault();
         moveFocus(-1);
+      } else if (event.key === 'Escape') {
+        if (digStack.length > 0) {
+          event.preventDefault();
+          popDig();
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [moveFocus]);
+  }, [moveFocus, popDig, digStack.length]);
 
-  const focusedBody = nodeQuery.data?.body ?? '';
+  const activeNode = (activeNodeQuery.data ?? null) as ActiveNodePayload | null;
+  const callees = ((calleesQuery.data ?? { callees: [] }) as CalleesPayload).callees;
+  const focusedBody = activeNode?.body ?? '';
 
   const layout = useMemo(
     () =>
-      buildLayout(nodes, {
-        focusedIdentity: focusedNode?.nodeIdentity ?? null,
+      buildLayout({
+        nodes,
+        focusedPosition: focusPosition,
+        digStack,
+        activeNode,
+        callees,
         focusedBody,
       }),
-    [nodes, focusedNode, focusedBody],
+    [nodes, focusPosition, digStack, activeNode, callees, focusedBody],
   );
 
   if (status.isLoading) {
@@ -198,20 +280,27 @@ export function WalkthroughPage() {
     );
   }
 
+  const activeRuntimeState: RuntimeState = activeNode?.runtimeState ??
+    focusedPathNode?.runtimeState ?? { kind: 'never_reviewed' };
+  const activeName = activeNode?.analyzed.name ?? focusedPathNode?.analyzed?.name ?? '';
+  const activePath = activeNode?.analyzed.filePath ?? focusedPathNode?.analyzed?.filePath ?? '';
+
   return (
     <main className="dot-grid min-h-screen p-8">
       <div className="mx-auto max-w-[1440px] space-y-4">
         <TitleBlock
           drawingLabel="DRAWING · WALKTHROUGH"
-          title={focusedNode?.analyzed?.name ?? 'Walkthrough'}
-          tagline={focusedNode?.analyzed?.filePath ?? ''}
+          title={activeName || 'Walkthrough'}
+          tagline={activePath}
           cells={[
             { label: 'PATH', value: pathId.slice(0, 8) },
             {
               label: 'POSITION',
               value: `${focusPosition + 1} / ${data?.path.nodeCount ?? '?'}`,
             },
-            { label: 'KEYS', value: 'j/k or ↑/↓' },
+            digStack.length > 0
+              ? { label: 'DIG', value: `+${digStack.length}` }
+              : { label: 'KEYS', value: 'j/k or ↑/↓' },
           ]}
         />
         {pathQuery.isLoading ? (
@@ -227,39 +316,62 @@ export function WalkthroughPage() {
         ) : (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex flex-col gap-3">
+              <DigBreadcrumb
+                focusedPathNode={focusedPathNode}
+                digStack={digStack}
+                callees={callees}
+                onPop={popDig}
+              />
               <div
                 className="border border-border-strong bg-surface"
                 data-testid="walkthrough-canvas"
+                data-dig-depth={digStack.length}
               >
                 <Canvas
                   nodes={layout.nodes}
                   edges={layout.edges}
                   height={620}
                   background="dot-grid"
+                  reactFlowProps={{
+                    onEdgeClick: (_event, edge) => {
+                      if (!edge.id.startsWith(DIG_EDGE_PREFIX)) return;
+                      const callee = edge.target;
+                      if (callee) digInto(callee);
+                    },
+                  }}
                 />
               </div>
-              {focusedNode && (
+              {activeIdentity && activeNode && (
                 <ActionRow
-                  focused={focusedNode}
+                  activeIdentity={activeIdentity}
+                  activeName={activeNode.analyzed.name}
+                  runtimeState={activeRuntimeState}
                   isPending={setStatusMutation.isPending || clearStatusMutation.isPending}
                   error={setStatusMutation.error ?? clearStatusMutation.error}
                   onAction={(status, comment) => {
-                    if (!focusedNode) return;
                     setStatusMutation.mutate({
-                      nodeIdentity: focusedNode.nodeIdentity,
+                      nodeIdentity: activeIdentity,
                       status,
                       comment,
                     });
                   }}
                   onClear={() => {
-                    if (!focusedNode) return;
-                    clearStatusMutation.mutate(focusedNode.nodeIdentity);
+                    clearStatusMutation.mutate(activeIdentity);
                   }}
                 />
               )}
               <PathSequence nodes={nodes} focusedPosition={focusPosition} onFocus={focusOn} />
             </div>
-            <ChecklistSidebar focused={focusedNode} isLoading={nodeQuery.isLoading} />
+            <ChecklistSidebar
+              focused={
+                digStack.length === 0
+                  ? focusedPathNode
+                  : activeNode
+                    ? activeNodeAsRow(activeNode)
+                    : null
+              }
+              isLoading={activeNodeQuery.isLoading}
+            />
           </div>
         )}
         <FooterNav projectId={projectId} pathId={pathId} />
@@ -268,21 +380,51 @@ export function WalkthroughPage() {
   );
 }
 
-function buildLayout(
-  nodes: ReadonlyArray<PathNodeRow>,
-  options: {
-    focusedIdentity: string | null;
-    focusedBody: string;
-  },
-): { nodes: CanvasNodeType[]; edges: CanvasEdgeType[] } {
-  const focusedBodyLines = options.focusedBody.split('\n').slice(0, MAX_INLINE_BODY_LINES);
+function activeNodeAsRow(active: ActiveNodePayload): PathNodeRow {
+  return {
+    position: -1,
+    nodeIdentity: active.analyzed.nodeIdentity,
+    forkGroup: null,
+    changeKind: null,
+    cycleBackToPosition: null,
+    analyzed: active.analyzed,
+    classification: active.classification,
+    runtimeState: active.runtimeState,
+  };
+}
 
-  const canvasNodes: CanvasNodeType[] = nodes.map((n) => {
-    const isFocused = n.nodeIdentity === options.focusedIdentity;
+/**
+ * Builds the canvas representation. Layers, in dagre rank order:
+ *   1. Path sequence (linear chain, resolved edges).
+ *   2. Dig stack (chained off the focused path node, dig-into-active edges).
+ *   3. Callees of the active node (fan-out, dig-into-active edges).
+ * The active node renders as 'code'; everyone else as 'summary'.
+ */
+function buildLayout(input: {
+  nodes: ReadonlyArray<PathNodeRow>;
+  focusedPosition: number;
+  digStack: ReadonlyArray<string>;
+  activeNode: ActiveNodePayload | null;
+  callees: ReadonlyArray<Callee>;
+  focusedBody: string;
+}): { nodes: CanvasNodeType[]; edges: CanvasEdgeType[] } {
+  const { nodes, focusedPosition, digStack, activeNode, callees, focusedBody } = input;
+  const focusedBodyLines = focusedBody.split('\n').slice(0, MAX_INLINE_BODY_LINES);
+  const activeIdentity =
+    digStack.at(-1) ?? nodes.find((n) => n.position === focusedPosition)?.nodeIdentity ?? null;
+
+  const canvasNodes: CanvasNodeType[] = [];
+  const canvasEdges: CanvasEdgeType[] = [];
+
+  // Layer 1: path sequence
+  for (const n of nodes) {
+    const isFocused = n.position === focusedPosition;
+    const isActive = activeIdentity === n.nodeIdentity;
+    const showAsCode = isActive && digStack.length === 0;
     const classificationVariant = classificationToChipVariant(n.classification?.classification);
     const canvasStatus = canvasStatusFor(n.runtimeState);
-    if (isFocused) {
-      return {
+    if (showAsCode) {
+      canvasNodes.push({
         id: n.nodeIdentity,
         type: 'canvas-node',
         position: { x: 0, y: 0 },
@@ -296,33 +438,124 @@ function buildLayout(
           title: n.analyzed?.name ?? n.nodeIdentity,
           bodyPreview: focusedBodyLines,
         },
-      };
+      });
+    } else {
+      canvasNodes.push({
+        id: n.nodeIdentity,
+        type: 'canvas-node',
+        position: { x: 0, y: 0 },
+        data: {
+          variant: 'summary',
+          focused: isFocused,
+          classification: classificationVariant,
+          status: canvasStatus,
+          title: n.analyzed?.name ?? n.nodeIdentity.split(':').at(-1) ?? '',
+          subtitle: n.analyzed?.filePath ?? '',
+        },
+      });
     }
-    return {
-      id: n.nodeIdentity,
+  }
+
+  for (let i = 1; i < nodes.length; i++) {
+    const prev = nodes[i - 1];
+    const cur = nodes[i];
+    if (!prev || !cur) continue;
+    canvasEdges.push({
+      id: `path-edge:${prev.nodeIdentity}->${cur.nodeIdentity}`,
+      type: 'canvas-edge',
+      source: prev.nodeIdentity,
+      target: cur.nodeIdentity,
+      data: { variant: 'resolved' },
+    });
+  }
+
+  // Layer 2: dig stack chain. Source of the first dig edge is the
+  // focused path node; subsequent edges chain dig[i-1] → dig[i].
+  const focusedPathNodeIdentity =
+    nodes.find((n) => n.position === focusedPosition)?.nodeIdentity ?? null;
+  for (let i = 0; i < digStack.length; i++) {
+    const id = digStack[i];
+    if (!id) continue;
+    const isLast = i === digStack.length - 1;
+    const showAsCode = isLast && activeNode != null;
+    if (showAsCode) {
+      canvasNodes.push({
+        id,
+        type: 'canvas-node',
+        position: { x: 0, y: 0 },
+        data: {
+          variant: 'code',
+          focused: true,
+          figureLabel: `FIG. A.${i + 1}`,
+          classification: classificationToChipVariant(activeNode?.classification?.classification),
+          status: canvasStatusFor(
+            activeNode?.runtimeState ?? ({ kind: 'never_reviewed' } as RuntimeState),
+          ),
+          filePath: activeNode?.analyzed.filePath ?? '',
+          title: activeNode?.analyzed.name ?? id,
+          bodyPreview: focusedBodyLines,
+        },
+      });
+    } else {
+      canvasNodes.push({
+        id,
+        type: 'canvas-node',
+        position: { x: 0, y: 0 },
+        data: {
+          variant: 'summary',
+          focused: false,
+          title: id.split(':').at(-1) ?? id,
+          subtitle: '',
+        },
+      });
+    }
+
+    const sourceId = i === 0 ? focusedPathNodeIdentity : digStack[i - 1];
+    if (sourceId) {
+      canvasEdges.push({
+        id: `dig-edge:${sourceId}->${id}`,
+        type: 'canvas-edge',
+        source: sourceId,
+        target: id,
+        data: { variant: 'dig-into-active' },
+      });
+    }
+  }
+
+  // Layer 3: callees of the active node. Avoid duplicating ids already
+  // used elsewhere on the canvas (path nodes, dig stack) — those would
+  // collide and break xyflow's node lookup. Skip the active node from
+  // its own callee list (rare self-call).
+  const usedIds = new Set(canvasNodes.map((n) => n.id));
+  for (const c of callees) {
+    if (usedIds.has(c.nodeIdentity)) continue;
+    canvasNodes.push({
+      id: c.nodeIdentity,
       type: 'canvas-node',
       position: { x: 0, y: 0 },
       data: {
         variant: 'summary',
         focused: false,
-        classification: classificationVariant,
-        status: canvasStatus,
-        title: n.analyzed?.name ?? n.nodeIdentity.split(':').at(-1) ?? '',
-        subtitle: n.analyzed?.filePath ?? '',
+        classification: classificationToChipVariant(c.classification?.classification),
+        status: canvasStatusFor(c.runtimeState),
+        title: c.analyzed?.name ?? c.nodeIdentity.split(':').at(-1) ?? '',
+        subtitle: c.analyzed?.filePath ?? '',
       },
-    };
-  });
+    });
+    usedIds.add(c.nodeIdentity);
 
-  const canvasEdges: CanvasEdgeType[] = nodes.slice(1).map((n, i) => {
-    const prev = nodes[i];
-    return {
-      id: `${prev?.nodeIdentity ?? ''}->${n.nodeIdentity}`,
-      type: 'canvas-edge',
-      source: prev?.nodeIdentity ?? '',
-      target: n.nodeIdentity,
-      data: { variant: 'resolved' },
-    };
-  });
+    if (activeIdentity) {
+      canvasEdges.push({
+        // The DIG_EDGE_PREFIX marker is what onEdgeClick checks to
+        // identify a "click here to dig in" edge.
+        id: `${DIG_EDGE_PREFIX}${activeIdentity}->${c.nodeIdentity}`,
+        type: 'canvas-edge',
+        source: activeIdentity,
+        target: c.nodeIdentity,
+        data: { variant: 'dig-into-active', callSiteLine: c.callSite.line },
+      });
+    }
+  }
 
   return layoutCanvas(canvasNodes, canvasEdges);
 }
@@ -368,6 +601,60 @@ function classificationToChipVariant(classification: string | undefined): ChipVa
     default:
       return 'unclassified';
   }
+}
+
+function DigBreadcrumb(props: {
+  focusedPathNode: PathNodeRow | null;
+  digStack: ReadonlyArray<string>;
+  callees: ReadonlyArray<Callee>;
+  onPop: () => void;
+}) {
+  if (props.digStack.length === 0) return null;
+
+  // Resolve display names: callees query gives names for direct
+  // children, but deeper levels we only know by identity. Fall back to
+  // the trailing segment.
+  const labelFor = (identity: string) => {
+    const callee = props.callees.find((c) => c.nodeIdentity === identity);
+    return callee?.analyzed?.name ?? identity.split(':').at(-1) ?? identity;
+  };
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 border border-border bg-surface-sunken px-3 py-2"
+      data-testid="walkthrough-dig-breadcrumb"
+    >
+      <DraftingLabel size="xs">DIG</DraftingLabel>
+      <span className="font-mono text-xs text-text-secondary">
+        {props.focusedPathNode?.analyzed?.name ?? '?'}
+      </span>
+      {props.digStack.map((id, i) => {
+        const depth = i;
+        return (
+          // The dig stack is append/pop only — identities at distinct
+          // depths are functionally stable and unique in normal use.
+          <span key={id} className="flex items-center gap-2">
+            <span className="text-text-tertiary">→</span>
+            <span
+              className="font-mono text-xs text-text-primary"
+              data-testid={`walkthrough-dig-crumb-${depth}`}
+            >
+              {labelFor(id)}
+            </span>
+          </span>
+        );
+      })}
+      <div className="flex-1" />
+      <button
+        type="button"
+        onClick={props.onPop}
+        className="border border-border-strong bg-transparent px-2 py-0.5 font-mono text-xs font-semibold uppercase tracking-widest text-text-secondary hover:bg-surface"
+        data-testid="walkthrough-dig-pop"
+      >
+        ← POP (esc)
+      </button>
+    </div>
+  );
 }
 
 function PathSequence(props: {
@@ -428,20 +715,28 @@ function PathSequence(props: {
 }
 
 function ActionRow(props: {
-  focused: PathNodeRow;
+  activeIdentity: string;
+  activeName: string;
+  runtimeState: RuntimeState;
   isPending: boolean;
   error: unknown;
   onAction: (status: ReviewStatus, comment: string | null) => void;
   onClear: () => void;
 }) {
   const [comment, setComment] = useState('');
-  const runtime = runtimeChipFor(props.focused.runtimeState);
-  const currentStatus = currentStatusOf(props.focused.runtimeState);
+  const runtime = runtimeChipFor(props.runtimeState);
+  const currentStatus = currentStatusOf(props.runtimeState);
 
   return (
     <Panel>
       <PanelHeader tone="sunken">
         <DraftingLabel size="sm">FIG. R · REVIEW ACTION</DraftingLabel>
+        <span
+          className="font-mono text-xs text-text-secondary truncate"
+          data-testid="walkthrough-action-target"
+        >
+          {props.activeName}
+        </span>
         <div className="flex-1" />
         {runtime ? (
           <Chip variant={runtime.variant}>{runtime.label}</Chip>

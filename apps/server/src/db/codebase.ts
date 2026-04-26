@@ -215,5 +215,17 @@ function runCacheMigrations(sqlite: Database.Database): void {
       last_read_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_llm_results_pipeline ON llm_results(pipeline);
+
+    CREATE TABLE IF NOT EXISTS call_edges (
+      caller_identity TEXT NOT NULL,
+      callee_identity TEXT,
+      call_site_line INTEGER NOT NULL,
+      call_site_column INTEGER NOT NULL,
+      unresolved INTEGER NOT NULL,
+      unresolved_hint TEXT,
+      project_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_call_edges_caller ON call_edges(caller_identity);
+    CREATE INDEX IF NOT EXISTS idx_call_edges_callee ON call_edges(callee_identity);
   `);
 }
