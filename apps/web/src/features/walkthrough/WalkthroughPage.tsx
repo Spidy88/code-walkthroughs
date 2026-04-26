@@ -8,7 +8,6 @@ import {
   Chip,
   type ChipVariant,
   DraftingLabel,
-  LineGutterBlock,
   Panel,
   PanelBody,
   PanelHeader,
@@ -16,6 +15,7 @@ import {
   layoutCanvas,
 } from '../../components/blueprint/index.ts';
 import { trpcClient } from '../../trpc.ts';
+import { getDefaultChecklist } from './checklists.ts';
 
 type PathNodeRow = {
   readonly position: number;
@@ -49,6 +49,8 @@ type PathPayload = {
   } | null;
   readonly nodes: ReadonlyArray<PathNodeRow>;
 };
+
+const MAX_INLINE_BODY_LINES = 14;
 
 export function WalkthroughPage() {
   const { projectId, pathId } = useParams({ from: '/project/$projectId/path/$pathId' });
@@ -84,8 +86,8 @@ export function WalkthroughPage() {
     (delta: number) => {
       if (nodes.length === 0) return;
       const next = Math.max(
-        nodes[0]?.position ?? 1,
-        Math.min(nodes[nodes.length - 1]?.position ?? 1, focusPosition + delta),
+        nodes[0]?.position ?? 0,
+        Math.min(nodes[nodes.length - 1]?.position ?? 0, focusPosition + delta),
       );
       navigate({
         to: '/project/$projectId/path/$pathId',
@@ -125,9 +127,15 @@ export function WalkthroughPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [moveFocus]);
 
+  const focusedBody = nodeQuery.data?.body ?? '';
+
   const layout = useMemo(
-    () => buildLayout(nodes, focusedNode?.nodeIdentity ?? null, focusOn),
-    [nodes, focusedNode, focusOn],
+    () =>
+      buildLayout(nodes, {
+        focusedIdentity: focusedNode?.nodeIdentity ?? null,
+        focusedBody,
+      }),
+    [nodes, focusedNode, focusedBody],
   );
 
   if (status.isLoading) {
@@ -150,7 +158,7 @@ export function WalkthroughPage() {
 
   return (
     <main className="dot-grid min-h-screen p-8">
-      <div className="mx-auto max-w-[1280px] space-y-4">
+      <div className="mx-auto max-w-[1440px] space-y-4">
         <TitleBlock
           drawingLabel="DRAWING · WALKTHROUGH"
           title={focusedNode?.analyzed?.name ?? 'Walkthrough'}
@@ -175,7 +183,7 @@ export function WalkthroughPage() {
             </PanelBody>
           </Panel>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex flex-col gap-3">
               <div
                 className="border border-border-strong bg-surface"
@@ -184,17 +192,13 @@ export function WalkthroughPage() {
                 <Canvas
                   nodes={layout.nodes}
                   edges={layout.edges}
-                  height={520}
+                  height={620}
                   background="dot-grid"
                 />
               </div>
               <PathSequence nodes={nodes} focusedPosition={focusPosition} onFocus={focusOn} />
             </div>
-            <FocusedNodePanel
-              focused={focusedNode}
-              body={nodeQuery.data?.body ?? ''}
-              isLoading={nodeQuery.isLoading}
-            />
+            <ChecklistSidebar focused={focusedNode} isLoading={nodeQuery.isLoading} />
           </div>
         )}
         <FooterNav projectId={projectId} pathId={pathId} />
@@ -205,21 +209,45 @@ export function WalkthroughPage() {
 
 function buildLayout(
   nodes: ReadonlyArray<PathNodeRow>,
-  focusedIdentity: string | null,
-  onFocus: (position: number) => void,
+  options: {
+    focusedIdentity: string | null;
+    focusedBody: string;
+  },
 ): { nodes: CanvasNodeType[]; edges: CanvasEdgeType[] } {
-  const canvasNodes: CanvasNodeType[] = nodes.map((n) => ({
-    id: n.nodeIdentity,
-    type: 'canvas-node',
-    position: { x: 0, y: 0 },
-    data: {
-      variant: 'summary',
-      focused: n.nodeIdentity === focusedIdentity,
-      classification: classificationToChipVariant(n.classification?.classification),
-      title: n.analyzed?.name ?? n.nodeIdentity.split(':').at(-1) ?? '',
-      subtitle: n.analyzed?.filePath ?? '',
-    },
-  }));
+  const focusedBodyLines = options.focusedBody.split('\n').slice(0, MAX_INLINE_BODY_LINES);
+
+  const canvasNodes: CanvasNodeType[] = nodes.map((n) => {
+    const isFocused = n.nodeIdentity === options.focusedIdentity;
+    const classificationVariant = classificationToChipVariant(n.classification?.classification);
+    if (isFocused) {
+      return {
+        id: n.nodeIdentity,
+        type: 'canvas-node',
+        position: { x: 0, y: 0 },
+        data: {
+          variant: 'code',
+          focused: true,
+          figureLabel: 'FIG. A',
+          classification: classificationVariant,
+          filePath: n.analyzed?.filePath ?? '',
+          title: n.analyzed?.name ?? n.nodeIdentity,
+          bodyPreview: focusedBodyLines,
+        },
+      };
+    }
+    return {
+      id: n.nodeIdentity,
+      type: 'canvas-node',
+      position: { x: 0, y: 0 },
+      data: {
+        variant: 'summary',
+        focused: false,
+        classification: classificationVariant,
+        title: n.analyzed?.name ?? n.nodeIdentity.split(':').at(-1) ?? '',
+        subtitle: n.analyzed?.filePath ?? '',
+      },
+    };
+  });
 
   const canvasEdges: CanvasEdgeType[] = nodes.slice(1).map((n, i) => {
     const prev = nodes[i];
@@ -232,14 +260,7 @@ function buildLayout(
     };
   });
 
-  const out = layoutCanvas(canvasNodes, canvasEdges);
-
-  // Add click handlers (via the data — we can't pass closures to xyflow nodes
-  // through the controlled-positions helper, so we expose onFocus via the
-  // PathSequence list below the canvas instead).
-  void onFocus;
-
-  return out;
+  return layoutCanvas(canvasNodes, canvasEdges);
 }
 
 function classificationToChipVariant(classification: string | undefined): ChipVariant {
@@ -333,70 +354,61 @@ function PathSequence(props: {
   );
 }
 
-function FocusedNodePanel(props: {
-  focused: PathNodeRow | null;
-  body: string;
-  isLoading: boolean;
-}) {
-  if (!props.focused) {
-    return (
-      <Panel>
-        <PanelBody>
-          <p className="text-sm text-text-tertiary">No node focused.</p>
-        </PanelBody>
-      </Panel>
-    );
-  }
-  const { focused } = props;
-  const lines = props.body.split('\n');
-  const startLine = focused.analyzed?.startLine ?? 1;
+function ChecklistSidebar(props: { focused: PathNodeRow | null; isLoading: boolean }) {
+  const classification = props.focused?.classification?.classification ?? null;
+  const checklist = useMemo(() => getDefaultChecklist(classification), [classification]);
 
   return (
-    <div className="relative">
+    <div className="flex flex-col gap-3" data-testid="walkthrough-sidebar">
       <Panel ticks>
         <PanelHeader tone="sunken">
           <DraftingLabel size="sm" tone="primary">
-            FIG. F · FOCUSED NODE
+            FIG. C · CHECKLIST
           </DraftingLabel>
-          {focused.classification && (
-            <Chip variant={classificationToChipVariant(focused.classification.classification)}>
-              {focused.classification.classification.replace(/_/g, ' ').toUpperCase()}
+          {props.focused?.classification && (
+            <Chip variant={classificationToChipVariant(checklist.classification)}>
+              {checklist.classification.replace(/_/g, ' ').toUpperCase()}
             </Chip>
           )}
         </PanelHeader>
-        <PanelBody>
-          <div className="font-mono text-xs text-text-tertiary truncate">
-            {focused.analyzed?.filePath ?? '—'}
-          </div>
-          <div className="mt-1 font-mono text-base font-semibold text-text-primary">
-            {focused.analyzed?.name ?? focused.nodeIdentity}
-          </div>
-          {focused.classification?.justification && (
-            <p className="mt-2 text-xs text-text-secondary">
-              {focused.classification.justification}
+        {props.focused?.classification?.justification && (
+          <PanelBody>
+            <p className="text-xs text-text-secondary">
+              {props.focused.classification.justification}
             </p>
-          )}
-        </PanelBody>
-        {props.isLoading ? (
-          <PanelBody>
-            <div className="text-sm text-text-secondary">Loading code…</div>
-          </PanelBody>
-        ) : props.body ? (
-          <div className="border-t border-dashed border-border">
-            <LineGutterBlock
-              lines={lines.map((text, i) => ({
-                number: startLine + i,
-                text,
-              }))}
-            />
-          </div>
-        ) : (
-          <PanelBody>
-            <div className="text-sm text-text-tertiary">No code body available.</div>
           </PanelBody>
         )}
+        <ul
+          className="divide-y divide-dashed divide-border"
+          data-testid="walkthrough-checklist-items"
+        >
+          {checklist.items.map((item) => (
+            <li key={item.label} className="flex items-start gap-2.5 px-3.5 py-2 text-sm">
+              <UncheckedIndicator />
+              <span className="flex-1 text-text-primary">{item.label}</span>
+              <DraftingLabel size="xs">UNCHECKED</DraftingLabel>
+            </li>
+          ))}
+        </ul>
+        <div className="border-t border-border bg-surface-sunken px-3.5 py-2 text-xs text-text-tertiary">
+          Items run when rule evaluation lands (chunk 15). Until then they show
+          <span className="ml-1 font-mono uppercase tracking-wider text-text-tertiary">
+            unchecked
+          </span>{' '}
+          — never claiming pass / fail.
+        </div>
       </Panel>
+      {props.isLoading && <div className="font-mono text-xs text-text-tertiary">Loading code…</div>}
     </div>
+  );
+}
+
+function UncheckedIndicator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-0.5 inline-block h-3.5 w-3.5 flex-shrink-0 border border-dashed border-border-strong"
+    />
   );
 }
 

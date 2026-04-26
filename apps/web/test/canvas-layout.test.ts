@@ -73,7 +73,7 @@ describe('layoutCanvas', () => {
     const result = layoutCanvas(nodes, []);
     const code = result.nodes.find((n) => n.id === 'code');
     const disp = result.nodes.find((n) => n.id === 'disp');
-    expect(code?.width).toBe(320);
+    expect(code?.width).toBe(520);
     expect(disp?.width).toBe(180);
   });
 });

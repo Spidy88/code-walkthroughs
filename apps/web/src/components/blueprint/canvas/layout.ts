@@ -7,7 +7,10 @@ import type { CanvasEdge, CanvasNode, CanvasNodeVariant } from './types.ts';
  * the styles in CanvasNode.tsx.
  */
 export const NODE_DIMENSIONS: Record<CanvasNodeVariant, { width: number; height: number }> = {
-  code: { width: 320, height: 220 },
+  // Wide enough to fit a meaningful code preview inline. The node grows
+  // vertically with the body content, but dagre needs an estimate; this
+  // covers ~14 lines of code at the current monospace size.
+  code: { width: 520, height: 360 },
   summary: { width: 240, height: 96 },
   preamble: { width: 220, height: 76 },
   dispatcher: { width: 180, height: 64 },

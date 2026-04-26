@@ -4,6 +4,7 @@ import { classifyFilesStage1 } from './classify/stage1.ts';
 import { classifyFilesStage2 } from './classify/stage2.ts';
 import { generateStage3PrepQuestions } from './classify/stage3.ts';
 import { detectPaths } from './paths/detect.ts';
+import { resolveCrossFileCallEdges } from './paths/resolve-cross-file.ts';
 import type { AnalysisInput, AnalysisOutput } from './types.ts';
 
 export async function runAnalysis(
@@ -56,13 +57,19 @@ export async function runAnalysis(
     ...(signal !== undefined ? { signal } : {}),
   });
 
+  // Resolve cross-file call edges so paths can traverse handler → service →
+  // repository → external client chains rather than terminating at the first
+  // non-local call. The resolver only patches edges marked
+  // 'cross-file-or-external'; truly external imports are left unresolved.
+  const resolvedFiles = resolveCrossFileCallEdges(parsedFiles);
+
   const entryPoints: EntryPoint[] = applicableFrameworks.flatMap((f) =>
-    f.detectEntryPoints({ project, files: parsedFiles }),
+    f.detectEntryPoints({ project, files: resolvedFiles }),
   );
 
   const { paths, pathNodes } = detectPaths({
     entryPoints,
-    files: parsedFiles,
+    files: resolvedFiles,
     projectId: project.id,
     ...(signal !== undefined ? { signal } : {}),
   });
