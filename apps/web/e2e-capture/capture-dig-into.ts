@@ -12,11 +12,14 @@
  *   5. Reload — the remaining dig depth survives because the URL
  *      carries the full focus history (spec §6.3 deep-linking).
  *
+ * Records both per-step screenshots AND a webm video of the full flow,
+ * with deliberate beats between actions so the recording is watchable.
+ *
  * Run via: bash scripts/e2e-capture.sh \
  *   apps/web/e2e-capture/capture-dig-into.ts \
  *   <codebase-path>
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 
@@ -26,13 +29,23 @@ if (!REPO_PATH) {
   console.error('usage: capture-dig-into.ts <codebase-path>');
   process.exit(64);
 }
-const OUT_DIR = resolve(import.meta.dirname, '..', 'test-results', 'screenshots');
+const SHOTS_DIR = resolve(import.meta.dirname, '..', 'test-results', 'screenshots');
+const VIDEO_DIR = resolve(import.meta.dirname, '..', 'test-results', 'videos');
+
+// Beats between user-visible actions so the video has time to read.
+const BEAT_SHORT = 700;
+const BEAT_LONG = 1500;
 
 async function main(): Promise<void> {
-  mkdirSync(OUT_DIR, { recursive: true });
+  mkdirSync(SHOTS_DIR, { recursive: true });
+  mkdirSync(VIDEO_DIR, { recursive: true });
 
+  const viewport = { width: 1440, height: 1100 };
   const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  const context = await browser.newContext({
+    viewport,
+    recordVideo: { dir: VIDEO_DIR, size: viewport },
+  });
   const page = await context.newPage();
   page.on('pageerror', (err) => console.log(`  [browser/pageerror] ${err.message}`));
 
@@ -48,6 +61,7 @@ async function main(): Promise<void> {
   await page.getByTestId('analysis-progress-continue').click();
   await page.waitForURL(/\/project\//);
   await page.waitForSelector('[data-testid="project-overview-summary"]');
+  await page.waitForTimeout(BEAT_LONG);
 
   console.log('→ Entering walkthrough — pick the first path with off-path callees');
   // Some paths are fully linear (every callee is the next path step), so
@@ -61,12 +75,13 @@ async function main(): Promise<void> {
     if (i > 0) {
       await page.goBack();
       await page.waitForSelector('[data-testid="project-overview-summary"]');
+      await page.waitForTimeout(BEAT_SHORT);
     }
     await page.getByTestId('project-overview-path-link').nth(i).click();
     await page.waitForURL(/\/path\//);
     await page.waitForSelector('[data-testid="walkthrough-canvas"]');
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(BEAT_SHORT);
     const calleeCount = await page.locator('[data-id^="callee-edge:"]').count();
     console.log(`  path #${i + 1}: ${calleeCount} dig-into edge(s)`);
     if (calleeCount > 0) {
@@ -77,17 +92,21 @@ async function main(): Promise<void> {
   if (!landed) {
     throw new Error('no path with off-path callees found in this fixture');
   }
-  await page.waitForTimeout(400);
+  // Sit on the initial state for a moment so a viewer can read the
+  // canvas: focused path node, callees fanning out, path sequence.
+  await page.waitForTimeout(BEAT_LONG);
 
   console.log('→ Capturing initial state with callee fan-out');
   await page.screenshot({
-    path: `${OUT_DIR}/dig-into-1-initial.png`,
+    path: `${SHOTS_DIR}/dig-into-1-initial.png`,
     fullPage: true,
   });
+  await page.waitForTimeout(BEAT_LONG);
 
   // ReactFlow nodes overlay edges with higher stacking, so a normal
   // .click() on the edge wrapper gets intercepted. Dispatch the click
   // via the DOM — React picks it up at the root listener regardless.
+  // Returns the data-id of the clicked edge for logging.
   const clickFirstCalleeEdge = async (): Promise<string | null> =>
     page.evaluate(() => {
       const edge = document.querySelector('[data-id^="callee-edge:"]');
@@ -97,7 +116,8 @@ async function main(): Promise<void> {
     });
 
   console.log('→ Dig level 1: click first callee edge');
-  await clickFirstCalleeEdge();
+  const clicked1 = await clickFirstCalleeEdge();
+  console.log(`  clicked: ${clicked1}`);
   await page.waitForFunction(
     () =>
       document
@@ -106,11 +126,12 @@ async function main(): Promise<void> {
     { timeout: 5000 },
   );
   await page.waitForSelector('[data-testid="walkthrough-dig-breadcrumb"]');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(BEAT_LONG);
   await page.screenshot({
-    path: `${OUT_DIR}/dig-into-2-level-1.png`,
+    path: `${SHOTS_DIR}/dig-into-2-level-1.png`,
     fullPage: true,
   });
+  await page.waitForTimeout(BEAT_LONG);
 
   console.log('→ Dig level 2: click another callee edge');
   // After the first dig, the active node is the dug-in callee — its
@@ -119,7 +140,8 @@ async function main(): Promise<void> {
   if (moreEdges === 0) {
     console.log('  (no further callees — skipping level-2 capture)');
   } else {
-    await clickFirstCalleeEdge();
+    const clicked2 = await clickFirstCalleeEdge();
+    console.log(`  clicked: ${clicked2}`);
     await page.waitForFunction(
       () =>
         document
@@ -127,11 +149,12 @@ async function main(): Promise<void> {
           ?.getAttribute('data-dig-depth') === '2',
       { timeout: 5000 },
     );
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(BEAT_LONG);
     await page.screenshot({
-      path: `${OUT_DIR}/dig-into-3-level-2.png`,
+      path: `${SHOTS_DIR}/dig-into-3-level-2.png`,
       fullPage: true,
     });
+    await page.waitForTimeout(BEAT_LONG);
   }
 
   console.log('→ Pop one level via Escape key');
@@ -143,11 +166,12 @@ async function main(): Promise<void> {
         ?.getAttribute('data-dig-depth') === '1',
     { timeout: 5000 },
   );
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(BEAT_LONG);
   await page.screenshot({
-    path: `${OUT_DIR}/dig-into-4-after-escape.png`,
+    path: `${SHOTS_DIR}/dig-into-4-after-escape.png`,
     fullPage: true,
   });
+  await page.waitForTimeout(BEAT_LONG);
 
   console.log('→ Reload — verify dig stack survives via URL');
   await page.reload();
@@ -160,11 +184,12 @@ async function main(): Promise<void> {
         ?.getAttribute('data-dig-depth') === '1',
     { timeout: 5000 },
   );
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(BEAT_LONG);
   await page.screenshot({
-    path: `${OUT_DIR}/dig-into-5-after-reload.png`,
+    path: `${SHOTS_DIR}/dig-into-5-after-reload.png`,
     fullPage: true,
   });
+  await page.waitForTimeout(BEAT_LONG);
 
   console.log('→ Pop back to path level via breadcrumb');
   await page.getByTestId('walkthrough-dig-pop').click();
@@ -175,14 +200,34 @@ async function main(): Promise<void> {
         ?.getAttribute('data-dig-depth') === '0',
     { timeout: 5000 },
   );
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(BEAT_LONG);
   await page.screenshot({
-    path: `${OUT_DIR}/dig-into-6-popped-to-path.png`,
+    path: `${SHOTS_DIR}/dig-into-6-popped-to-path.png`,
     fullPage: true,
   });
+  // Hold on the final state for a beat so the video doesn't end
+  // mid-animation.
+  await page.waitForTimeout(BEAT_LONG);
 
+  // Resolve the recorded video path *before* closing the context —
+  // page.video() returns null after close. We rename it to a stable
+  // filename so the artifact is easy to find.
+  const videoHandle = page.video();
+  await context.close();
   await browser.close();
-  console.log(`✓ Screenshots saved to ${OUT_DIR}`);
+
+  if (videoHandle) {
+    const rawPath = await videoHandle.path();
+    const stablePath = `${VIDEO_DIR}/dig-into-flow.webm`;
+    try {
+      renameSync(rawPath, stablePath);
+      console.log(`✓ Video saved to ${stablePath}`);
+    } catch (err) {
+      console.warn(`could not rename video ${rawPath} → ${stablePath}:`, err);
+    }
+  }
+
+  console.log(`✓ Screenshots saved to ${SHOTS_DIR}`);
 }
 
 main().catch((error) => {
