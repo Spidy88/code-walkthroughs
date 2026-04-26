@@ -121,3 +121,150 @@ describe('reviewService.promoteScopedApproval', () => {
     expect(result.promoted).toBe(false);
   });
 });
+
+describe('reviewService.setFileStatus (file-level cascade)', () => {
+  const FILE = 'src/orders.ts';
+  const FN_A = 'proj:src/orders.ts:fnA';
+  const FN_B = 'proj:src/orders.ts:fnB';
+  const hashes = new Map([
+    [FN_A, 'h-a'],
+    [FN_B, 'h-b'],
+  ]);
+
+  it('applies cleanly to all functions when no conflicts exist', async () => {
+    const db = createStateDb();
+    const svc = createReviewService(db);
+    const result = await svc.setFileStatus({
+      filePath: FILE,
+      functionIdentities: [FN_A, FN_B],
+      functionCodeHashByIdentity: hashes,
+      fileCodeHash: 'h-file',
+      status: 'approved',
+      comment: 'looks good across the file',
+      conflictResolution: null,
+      reviewerId: 'rev',
+      now: new Date('2026-04-26T12:00:00.000Z'),
+    });
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.functionsApplied).toBe(2);
+
+    const all = await svc.list();
+    // Both functions plus the file pseudo-identity carry an approved
+    // global status.
+    expect(all.map((r) => r.nodeIdentity).sort()).toEqual([`file:${FILE}`, FN_A, FN_B].sort());
+    for (const row of all) {
+      expect(row.status).toBe('approved');
+      expect(row.scope).toEqual({ kind: 'global' });
+    }
+  });
+
+  it('returns conflicts (no writes) when functions disagree and no resolution is supplied', async () => {
+    const db = createStateDb();
+    const svc = createReviewService(db);
+    // Pre-existing function status that will conflict with the file
+    // action. setFileStatus should report the conflict and write
+    // nothing.
+    await svc.setStatus({
+      nodeIdentity: FN_A,
+      status: 'rejected',
+      comment: null,
+      codeHash: 'h-a',
+      reviewerId: 'rev',
+      scope: { kind: 'global' },
+      now: new Date('2026-04-26T11:00:00.000Z'),
+    });
+
+    const result = await svc.setFileStatus({
+      filePath: FILE,
+      functionIdentities: [FN_A, FN_B],
+      functionCodeHashByIdentity: hashes,
+      fileCodeHash: 'h-file',
+      status: 'approved',
+      comment: null,
+      conflictResolution: null,
+      reviewerId: 'rev',
+      now: new Date('2026-04-26T12:00:00.000Z'),
+    });
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.conflicts).toEqual([{ nodeIdentity: FN_A, currentStatus: 'rejected' }]);
+
+    // Nothing changed: the prior reject row is still there, no file
+    // row was created.
+    const all = await svc.list();
+    expect(all).toHaveLength(1);
+    expect(all[0]?.nodeIdentity).toBe(FN_A);
+    expect(all[0]?.status).toBe('rejected');
+  });
+
+  it("preserves conflicting function statuses when resolution is 'preserve'", async () => {
+    const db = createStateDb();
+    const svc = createReviewService(db);
+    await svc.setStatus({
+      nodeIdentity: FN_A,
+      status: 'rejected',
+      comment: 'bad',
+      codeHash: 'h-a',
+      reviewerId: 'rev',
+      scope: { kind: 'global' },
+      now: new Date('2026-04-26T11:00:00.000Z'),
+    });
+
+    const result = await svc.setFileStatus({
+      filePath: FILE,
+      functionIdentities: [FN_A, FN_B],
+      functionCodeHashByIdentity: hashes,
+      fileCodeHash: 'h-file',
+      status: 'approved',
+      comment: null,
+      conflictResolution: 'preserve',
+      reviewerId: 'rev',
+      now: new Date('2026-04-26T12:00:00.000Z'),
+    });
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.functionsApplied).toBe(1);
+    expect(result.functionsPreserved).toBe(1);
+
+    const byIdentity = new Map((await svc.list()).map((r) => [r.nodeIdentity, r]));
+    expect(byIdentity.get(FN_A)?.status).toBe('rejected');
+    expect(byIdentity.get(FN_B)?.status).toBe('approved');
+    expect(byIdentity.get(`file:${FILE}`)?.status).toBe('approved');
+  });
+
+  it("overrides every function status when resolution is 'override'", async () => {
+    const db = createStateDb();
+    const svc = createReviewService(db);
+    await svc.setStatus({
+      nodeIdentity: FN_A,
+      status: 'rejected',
+      comment: 'bad',
+      codeHash: 'h-a',
+      reviewerId: 'rev',
+      scope: { kind: 'global' },
+      now: new Date('2026-04-26T11:00:00.000Z'),
+    });
+
+    const result = await svc.setFileStatus({
+      filePath: FILE,
+      functionIdentities: [FN_A, FN_B],
+      functionCodeHashByIdentity: hashes,
+      fileCodeHash: 'h-file',
+      status: 'approved',
+      comment: null,
+      conflictResolution: 'override',
+      reviewerId: 'rev',
+      now: new Date('2026-04-26T12:00:00.000Z'),
+    });
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.functionsOverridden).toBe(1);
+    expect(result.functionsApplied).toBe(1);
+
+    const byIdentity = new Map((await svc.list()).map((r) => [r.nodeIdentity, r]));
+    expect(byIdentity.get(FN_A)?.status).toBe('approved');
+    expect(byIdentity.get(FN_B)?.status).toBe('approved');
+    expect(byIdentity.get(`file:${FILE}`)?.status).toBe('approved');
+  });
+});

@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
+import { useState } from 'react';
 import {
   Chip,
   type ChipVariant,
@@ -50,6 +51,18 @@ type FilePayload = {
 export function FileDetailPage() {
   const { projectId, _splat } = useParams({ from: '/project/$projectId/files/$' });
   const filePath = _splat ?? '';
+  const queryClient = useQueryClient();
+  // Pending file-level cascade — if the server reports conflicts the
+  // reviewer hasn't picked a resolution for, hold the in-flight
+  // request here while the conflict prompt asks how to proceed.
+  const [pendingCascade, setPendingCascade] = useState<{
+    readonly status: ReviewStatus;
+    readonly comment: string | null;
+    readonly conflicts: ReadonlyArray<{
+      readonly nodeIdentity: string;
+      readonly currentStatus: ReviewStatus;
+    }>;
+  } | null>(null);
 
   const status = useQuery({
     queryKey: ['app', 'status'],
@@ -59,6 +72,26 @@ export function FileDetailPage() {
     queryKey: ['walkthrough', 'getFile', filePath],
     queryFn: () => trpcClient.walkthrough.getFile.query({ filePath }),
     enabled: status.data?.active != null && filePath.length > 0,
+  });
+
+  const setFileStatusMutation = useMutation({
+    mutationFn: (input: {
+      status: ReviewStatus;
+      comment: string | null;
+      conflictResolution: 'preserve' | 'override' | null;
+    }) =>
+      trpcClient.review.setFileStatus.mutate({
+        filePath,
+        status: input.status,
+        comment: input.comment ?? undefined,
+        conflictResolution: input.conflictResolution ?? undefined,
+      }),
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getFile', filePath] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getFileTree'] }),
+      ]);
+    },
   });
 
   if (status.isLoading) return <CenteredMessage label="Loading…" />;
@@ -102,6 +135,60 @@ export function FileDetailPage() {
           )}
           <RuntimeChip state={data?.file.runtimeState} />
         </div>
+        {pendingCascade && (
+          <ConflictPrompt
+            pending={pendingCascade}
+            isPending={setFileStatusMutation.isPending}
+            functions={data?.functions ?? []}
+            onPreserve={() =>
+              setFileStatusMutation.mutate(
+                {
+                  status: pendingCascade.status,
+                  comment: pendingCascade.comment,
+                  conflictResolution: 'preserve',
+                },
+                { onSuccess: () => setPendingCascade(null) },
+              )
+            }
+            onOverride={() =>
+              setFileStatusMutation.mutate(
+                {
+                  status: pendingCascade.status,
+                  comment: pendingCascade.comment,
+                  conflictResolution: 'override',
+                },
+                { onSuccess: () => setPendingCascade(null) },
+              )
+            }
+            onCancel={() => setPendingCascade(null)}
+          />
+        )}
+        {data && (
+          <FileActionRow
+            isPending={setFileStatusMutation.isPending}
+            error={setFileStatusMutation.error}
+            onAction={(actionStatus, comment) => {
+              setFileStatusMutation.mutate(
+                {
+                  status: actionStatus,
+                  comment,
+                  conflictResolution: null,
+                },
+                {
+                  onSuccess: (result) => {
+                    if (!result.applied) {
+                      setPendingCascade({
+                        status: actionStatus,
+                        comment,
+                        conflicts: result.conflicts,
+                      });
+                    }
+                  },
+                },
+              );
+            }}
+          />
+        )}
         {fileQuery.isLoading ? (
           <CenteredMessage label="Loading file…" />
         ) : fileQuery.error ? (
@@ -192,6 +279,178 @@ export function FileDetailPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function FileActionRow(props: {
+  isPending: boolean;
+  error: unknown;
+  onAction: (status: ReviewStatus, comment: string | null) => void;
+}) {
+  const [comment, setComment] = useState('');
+  return (
+    <Panel>
+      <PanelHeader tone="sunken">
+        <DraftingLabel size="sm">FIG. R · FILE ACTION</DraftingLabel>
+        <span className="font-mono text-[0.625rem] text-text-tertiary">
+          cascades to every function in the file
+        </span>
+      </PanelHeader>
+      <PanelBody>
+        <textarea
+          name="file-comment"
+          rows={2}
+          placeholder="Comment (required for Request Info; optional otherwise)"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          disabled={props.isPending}
+          className="block w-full resize-y border border-border-strong bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-primary"
+          data-testid="file-action-comment"
+        />
+        {props.error !== null && props.error !== undefined && (
+          <div className="mt-2 text-sm text-error" data-testid="file-action-error">
+            {String((props.error as Error).message ?? props.error)}
+          </div>
+        )}
+      </PanelBody>
+      <div className="flex flex-wrap items-center gap-2 border-t border-border bg-surface-sunken px-3.5 py-2">
+        <FileActionButton
+          label="Approve file"
+          tone="approve"
+          disabled={props.isPending}
+          onClick={() => {
+            props.onAction('approved', comment.trim() || null);
+            setComment('');
+          }}
+          testId="file-action-approve"
+        />
+        <FileActionButton
+          label="Reject file"
+          tone="reject"
+          disabled={props.isPending}
+          onClick={() => {
+            props.onAction('rejected', comment.trim() || null);
+            setComment('');
+          }}
+          testId="file-action-reject"
+        />
+        <FileActionButton
+          label="Request info"
+          tone="info"
+          disabled={props.isPending || comment.trim() === ''}
+          onClick={() => {
+            const trimmed = comment.trim();
+            if (!trimmed) return;
+            props.onAction('info_requested', trimmed);
+            setComment('');
+          }}
+          testId="file-action-info"
+        />
+      </div>
+    </Panel>
+  );
+}
+
+function FileActionButton(props: {
+  label: string;
+  tone: 'approve' | 'reject' | 'info';
+  disabled: boolean;
+  onClick: () => void;
+  testId: string;
+}) {
+  const styles = {
+    approve: 'border-approve-600 bg-approve-600 text-text-inverse hover:bg-approve-500',
+    reject: 'border-reject-600 bg-transparent text-reject-600 hover:bg-reject-soft',
+    info: 'border-info-600 bg-transparent text-info-600 hover:bg-info-soft',
+  } as const;
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled}
+      className={[
+        'border px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-60',
+        styles[props.tone],
+      ].join(' ')}
+      data-testid={props.testId}
+    >
+      {props.label}
+    </button>
+  );
+}
+
+function ConflictPrompt(props: {
+  pending: {
+    readonly status: ReviewStatus;
+    readonly comment: string | null;
+    readonly conflicts: ReadonlyArray<{
+      readonly nodeIdentity: string;
+      readonly currentStatus: ReviewStatus;
+    }>;
+  };
+  functions: ReadonlyArray<AnalyzedFn>;
+  isPending: boolean;
+  onPreserve: () => void;
+  onOverride: () => void;
+  onCancel: () => void;
+}) {
+  const namesByIdentity = new Map(props.functions.map((f) => [f.nodeIdentity, f.name]));
+  return (
+    <div
+      className="flex flex-col gap-2 border border-info-600 bg-info-soft px-3 py-2"
+      data-testid="file-action-conflict-prompt"
+    >
+      <div className="flex items-center gap-2">
+        <DraftingLabel size="xs" tone="primary">
+          CONFLICT
+        </DraftingLabel>
+        <span className="font-mono text-xs text-text-primary">
+          {props.pending.conflicts.length} function(s) already have a different status. Apply the
+          file action as <strong>{props.pending.status.replace('_', ' ')}</strong>?
+        </span>
+      </div>
+      <ul className="flex flex-col gap-0.5 pl-1" data-testid="file-action-conflict-list">
+        {props.pending.conflicts.map((c) => (
+          <li
+            key={c.nodeIdentity}
+            className="font-mono text-xs text-text-secondary"
+            data-testid={`file-action-conflict-row-${c.nodeIdentity}`}
+          >
+            {namesByIdentity.get(c.nodeIdentity) ?? c.nodeIdentity}{' '}
+            <span className="text-text-tertiary">— currently {c.currentStatus}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={props.onPreserve}
+          disabled={props.isPending}
+          className="border border-primary bg-primary px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-inverse hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="file-action-conflict-preserve"
+        >
+          Preserve
+        </button>
+        <button
+          type="button"
+          onClick={props.onOverride}
+          disabled={props.isPending}
+          className="border border-reject-600 bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-reject-600 hover:bg-reject-soft disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="file-action-conflict-override"
+        >
+          Override
+        </button>
+        <button
+          type="button"
+          onClick={props.onCancel}
+          disabled={props.isPending}
+          className="border border-border-strong bg-surface px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-secondary hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60"
+          data-testid="file-action-conflict-cancel"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
