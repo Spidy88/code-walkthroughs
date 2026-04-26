@@ -110,6 +110,20 @@ async function main(): Promise<void> {
     fullPage: true,
   });
 
+  // Continue to project overview
+  console.log('→ Continuing to project overview');
+  await page.getByTestId('analysis-progress-continue').click();
+  await page.waitForURL(/\/project\//);
+  await page.waitForSelector('[data-testid="project-overview-summary"]');
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(150);
+
+  console.log('→ Capturing project overview');
+  await page.screenshot({
+    path: `${OUT_DIR}/analysis-flow-4-project-overview.png`,
+    fullPage: true,
+  });
+
   await browser.close();
   console.log(`✓ Screenshots saved to ${OUT_DIR}`);
 }

@@ -1,8 +1,25 @@
+import { basename } from 'node:path';
 import { asc } from 'drizzle-orm';
 import { entryPoints, pathNodes, paths } from '../db/schema/cache/index.ts';
 import { router, scopedProcedure } from './trpc.ts';
 
 export const walkthroughRouter = router({
+  /**
+   * v1 supports one project per codebase. The project's id is the codebase
+   * hash; its name comes from the user label or the path basename.
+   */
+  listProjects: scopedProcedure.query(({ ctx }) => {
+    const cb = ctx.codebase;
+    return [
+      {
+        id: cb.hash,
+        name: cb.label ?? basename(cb.absolutePath),
+        rootPath: cb.absolutePath,
+        walkable: true,
+      },
+    ];
+  }),
+
   entryPoints: scopedProcedure.query(async ({ ctx }) => {
     return ctx.codebase.dbs.cache.select().from(entryPoints);
   }),

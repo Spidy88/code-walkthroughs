@@ -120,7 +120,15 @@ export function AnalysisProgressPage() {
           runError={run.error}
         />
         {data?.stage === 'completed' && data.summary && (
-          <CompletedSection summary={data.summary} onContinue={() => navigate({ to: '/' })} />
+          <CompletedSection
+            summary={data.summary}
+            onContinue={() =>
+              navigate({
+                to: '/project/$projectId',
+                params: { projectId: status.data?.active?.hash ?? '' },
+              })
+            }
+          />
         )}
       </div>
     </main>
