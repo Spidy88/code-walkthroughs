@@ -78,6 +78,7 @@ export {
 export type {
   AddCommentInput,
   ClearStatusInput,
+  PromoteScopedApprovalInput,
   SetFileStatusInput,
   SetStatusInput,
 } from './schemas/review.ts';
@@ -87,6 +88,7 @@ export {
   commentAnchorKindSchema,
   commentAnchorSchema,
   fileCascadeResolutionSchema,
+  promoteScopedApprovalInputSchema,
   reviewStatusSchema,
   setFileStatusInputSchema,
   setStatusInputSchema,

@@ -1,4 +1,8 @@
-import { clearStatusInputSchema, setStatusInputSchema } from '@cw/shared';
+import {
+  clearStatusInputSchema,
+  promoteScopedApprovalInputSchema,
+  setStatusInputSchema,
+} from '@cw/shared';
 import { eq } from 'drizzle-orm';
 import { classifications } from '../db/schema/cache/index.ts';
 import { createReviewService } from '../review/service.ts';
@@ -40,4 +44,16 @@ export const reviewRouter = router({
       now: ctx.now(),
     });
   }),
+
+  promoteScopedApproval: scopedProcedure
+    .input(promoteScopedApprovalInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const service = createReviewService(ctx.codebase.dbs.state);
+      return service.promoteScopedApproval({
+        nodeIdentity: input.nodeIdentity,
+        pathId: input.pathId,
+        reviewerId: REVIEWER_ID,
+        now: ctx.now(),
+      });
+    }),
 });

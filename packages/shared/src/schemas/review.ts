@@ -34,6 +34,18 @@ export const clearStatusInputSchema = z.object({
 
 export type ClearStatusInput = z.infer<typeof clearStatusInputSchema>;
 
+/**
+ * Lift a path-scoped review status to global. The reviewer chose to
+ * apply the same call, just made for one path, to every other path
+ * that crosses this node — explicit opt-in per spec §8.4.
+ */
+export const promoteScopedApprovalInputSchema = z.object({
+  nodeIdentity: z.string().min(1),
+  pathId: z.string().min(1),
+});
+
+export type PromoteScopedApprovalInput = z.infer<typeof promoteScopedApprovalInputSchema>;
+
 export const fileCascadeResolutionSchema = z.enum(['preserve', 'override']);
 
 export const setFileStatusInputSchema = z

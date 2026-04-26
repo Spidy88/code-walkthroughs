@@ -20,6 +20,19 @@ export type ReviewService = {
     now: Date;
     reason: string;
   }): Promise<{ cleared: boolean }>;
+  /**
+   * Lift a path-scoped review row to global. Reviewer's explicit choice
+   * — they reviewed once for one path and want that decision to apply
+   * everywhere this node is encountered. The path-scoped row is
+   * archived; an existing global row (if any) is also archived and
+   * replaced with the path-scoped values.
+   */
+  promoteScopedApproval(input: {
+    nodeIdentity: string;
+    pathId: string;
+    reviewerId: string;
+    now: Date;
+  }): Promise<{ promoted: boolean }>;
   list(): Promise<ReviewStatusListRow[]>;
 };
 
@@ -125,6 +138,86 @@ export function createReviewService(db: StateDb): ReviewService {
       });
       await db.delete(reviewStatus).where(eq(reviewStatus.id, prior.id));
       return { cleared: true };
+    },
+
+    async promoteScopedApproval(input) {
+      const pathScopeKey = `path:${input.pathId}`;
+      const [scoped] = await db
+        .select()
+        .from(reviewStatus)
+        .where(
+          and(
+            eq(reviewStatus.nodeIdentity, input.nodeIdentity),
+            eq(reviewStatus.scope, pathScopeKey),
+          ),
+        );
+      if (!scoped) return { promoted: false };
+
+      const [globalRow] = await db
+        .select()
+        .from(reviewStatus)
+        .where(
+          and(eq(reviewStatus.nodeIdentity, input.nodeIdentity), eq(reviewStatus.scope, 'global')),
+        );
+      const timestamp = input.now.toISOString();
+
+      // Archive any pre-existing global row so the audit trail keeps
+      // the prior decision; the new global takes the path-scoped values.
+      if (globalRow) {
+        await db.insert(reviewHistory).values({
+          id: ulid(),
+          nodeIdentity: globalRow.nodeIdentity,
+          scope: globalRow.scope,
+          status: globalRow.status,
+          comment: globalRow.comment,
+          codeHash: globalRow.codeHash,
+          reviewerId: globalRow.reviewerId,
+          createdAt: globalRow.createdAt,
+          updatedAt: globalRow.updatedAt,
+          supersededAt: timestamp,
+          reason: 'superseded_by_promote',
+        });
+        await db
+          .update(reviewStatus)
+          .set({
+            status: scoped.status,
+            comment: scoped.comment,
+            codeHash: scoped.codeHash,
+            reviewerId: input.reviewerId,
+            updatedAt: timestamp,
+          })
+          .where(eq(reviewStatus.id, globalRow.id));
+      } else {
+        await db.insert(reviewStatus).values({
+          id: ulid(),
+          nodeIdentity: input.nodeIdentity,
+          scope: 'global',
+          status: scoped.status,
+          comment: scoped.comment,
+          codeHash: scoped.codeHash,
+          reviewerId: input.reviewerId,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+      }
+
+      // Archive the path-scoped row and remove it. The decision now
+      // lives globally; keeping a path row would just duplicate state.
+      await db.insert(reviewHistory).values({
+        id: ulid(),
+        nodeIdentity: scoped.nodeIdentity,
+        scope: scoped.scope,
+        status: scoped.status,
+        comment: scoped.comment,
+        codeHash: scoped.codeHash,
+        reviewerId: scoped.reviewerId,
+        createdAt: scoped.createdAt,
+        updatedAt: scoped.updatedAt,
+        supersededAt: timestamp,
+        reason: 'promoted_to_global',
+      });
+      await db.delete(reviewStatus).where(eq(reviewStatus.id, scoped.id));
+      return { promoted: true };
     },
 
     async list() {

@@ -19,20 +19,22 @@ import { getDefaultChecklist } from './checklists.ts';
 
 type ReviewStatus = 'approved' | 'rejected' | 'info_requested';
 
+type RuntimeScope =
+  | { readonly kind: 'global' }
+  | { readonly kind: 'path'; readonly pathId: string };
+
+type ReviewSnapshot = {
+  readonly status: ReviewStatus;
+  readonly comment: string | null;
+  readonly scope: RuntimeScope;
+  readonly updatedAt: string;
+};
+
 type RuntimeState =
   | { readonly kind: 'never_reviewed' }
-  | {
-      readonly kind: 'reviewed_current';
-      readonly current: { readonly status: ReviewStatus; readonly comment: string | null };
-    }
-  | {
-      readonly kind: 'reviewed_stale';
-      readonly prior: { readonly status: ReviewStatus; readonly comment: string | null };
-    }
-  | {
-      readonly kind: 'info_requested';
-      readonly current: { readonly status: ReviewStatus; readonly comment: string | null };
-    };
+  | { readonly kind: 'reviewed_current'; readonly current: ReviewSnapshot }
+  | { readonly kind: 'reviewed_stale'; readonly prior: ReviewSnapshot }
+  | { readonly kind: 'info_requested'; readonly current: ReviewSnapshot };
 
 type AnalyzedSummary = {
   readonly nodeIdentity: string;
@@ -101,6 +103,16 @@ export function WalkthroughPage() {
   const queryClient = useQueryClient();
   const focusPosition = search.focus ?? 0;
   const digStack = useMemo(() => search.dig ?? [], [search.dig]);
+  // When the reviewer clicks a dig-into edge to a previously-reviewed
+  // callee, surface the reuse prompt before actually diving in. Holds
+  // the candidate plus what we know about its prior review so the
+  // prompt can describe what the reviewer is about to override or
+  // skip.
+  const [pendingDig, setPendingDig] = useState<{
+    readonly calleeIdentity: string;
+    readonly name: string;
+    readonly runtimeState: RuntimeState;
+  } | null>(null);
 
   const status = useQuery({
     queryKey: ['app', 'status'],
@@ -140,35 +152,45 @@ export function WalkthroughPage() {
     enabled: status.data?.active != null && activeIdentity != null,
   });
 
+  const invalidateAll = useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNode'] }),
+        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNodeCallees'] }),
+      ]),
+    [queryClient, pathId],
+  );
+
   const setStatusMutation = useMutation({
     mutationFn: (input: {
       nodeIdentity: string;
       status: ReviewStatus;
       comment: string | null;
+      scope: 'global' | 'path';
     }) =>
       trpcClient.review.setStatus.mutate({
         nodeIdentity: input.nodeIdentity,
         status: input.status,
         comment: input.comment ?? undefined,
+        pathScope: input.scope === 'path' ? pathId : undefined,
       }),
-    onSettled: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] }),
-        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNode'] }),
-        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNodeCallees'] }),
-      ]);
-    },
+    onSettled: invalidateAll,
   });
 
   const clearStatusMutation = useMutation({
-    mutationFn: (nodeIdentity: string) => trpcClient.review.clear.mutate({ nodeIdentity }),
-    onSettled: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getPath', pathId] }),
-        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNode'] }),
-        queryClient.invalidateQueries({ queryKey: ['walkthrough', 'getNodeCallees'] }),
-      ]);
-    },
+    mutationFn: (input: { nodeIdentity: string; scope: 'global' | 'path' }) =>
+      trpcClient.review.clear.mutate({
+        nodeIdentity: input.nodeIdentity,
+        pathScope: input.scope === 'path' ? pathId : undefined,
+      }),
+    onSettled: invalidateAll,
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: (nodeIdentity: string) =>
+      trpcClient.review.promoteScopedApproval.mutate({ nodeIdentity, pathId }),
+    onSettled: invalidateAll,
   });
 
   const moveFocus = useCallback(
@@ -207,8 +229,28 @@ export function WalkthroughPage() {
         params: { projectId, pathId },
         search: { focus: focusPosition, dig: [...digStack, calleeIdentity] },
       });
+      setPendingDig(null);
     },
     [navigate, projectId, pathId, focusPosition, digStack],
+  );
+
+  // The canvas onEdgeClick handler delegates here. If the callee has
+  // any prior review, show the Skip / Re-examine prompt rather than
+  // jumping straight in (spec §6.3 step 2).
+  const requestDig = useCallback(
+    (calleeIdentity: string, calleeList: ReadonlyArray<Callee>) => {
+      const callee = calleeList.find((c) => c.nodeIdentity === calleeIdentity);
+      if (!callee || callee.runtimeState.kind === 'never_reviewed') {
+        digInto(calleeIdentity);
+        return;
+      }
+      setPendingDig({
+        calleeIdentity,
+        name: callee.analyzed?.name ?? calleeIdentity.split(':').at(-1) ?? calleeIdentity,
+        runtimeState: callee.runtimeState,
+      });
+    },
+    [digInto],
   );
 
   const popDig = useCallback(() => {
@@ -322,6 +364,14 @@ export function WalkthroughPage() {
                 callees={callees}
                 onPop={popDig}
               />
+              {pendingDig && (
+                <ReusePrompt
+                  calleeName={pendingDig.name}
+                  runtimeState={pendingDig.runtimeState}
+                  onSkip={() => setPendingDig(null)}
+                  onReexamine={() => digInto(pendingDig.calleeIdentity)}
+                />
+              )}
               <div
                 className="border border-border-strong bg-surface"
                 data-testid="walkthrough-canvas"
@@ -336,7 +386,7 @@ export function WalkthroughPage() {
                     onEdgeClick: (_event, edge) => {
                       if (!edge.id.startsWith(DIG_EDGE_PREFIX)) return;
                       const callee = edge.target;
-                      if (callee) digInto(callee);
+                      if (callee) requestDig(callee, callees);
                     },
                   }}
                 />
@@ -346,17 +396,27 @@ export function WalkthroughPage() {
                   activeIdentity={activeIdentity}
                   activeName={activeNode.analyzed.name}
                   runtimeState={activeRuntimeState}
-                  isPending={setStatusMutation.isPending || clearStatusMutation.isPending}
-                  error={setStatusMutation.error ?? clearStatusMutation.error}
-                  onAction={(status, comment) => {
+                  isPending={
+                    setStatusMutation.isPending ||
+                    clearStatusMutation.isPending ||
+                    promoteMutation.isPending
+                  }
+                  error={
+                    setStatusMutation.error ?? clearStatusMutation.error ?? promoteMutation.error
+                  }
+                  onAction={(status, comment, scope) => {
                     setStatusMutation.mutate({
                       nodeIdentity: activeIdentity,
                       status,
                       comment,
+                      scope,
                     });
                   }}
-                  onClear={() => {
-                    clearStatusMutation.mutate(activeIdentity);
+                  onClear={(scope) => {
+                    clearStatusMutation.mutate({ nodeIdentity: activeIdentity, scope });
+                  }}
+                  onPromote={() => {
+                    promoteMutation.mutate(activeIdentity);
                   }}
                 />
               )}
@@ -720,11 +780,16 @@ function ActionRow(props: {
   runtimeState: RuntimeState;
   isPending: boolean;
   error: unknown;
-  onAction: (status: ReviewStatus, comment: string | null) => void;
-  onClear: () => void;
+  onAction: (status: ReviewStatus, comment: string | null, scope: 'global' | 'path') => void;
+  onClear: (scope: 'global' | 'path') => void;
+  onPromote: () => void;
 }) {
   const [comment, setComment] = useState('');
+  // Default to global — path-scoped is an explicit reviewer opt-in
+  // (spec §8.4). Persists for the lifetime of this focused node.
+  const [scope, setScope] = useState<'global' | 'path'>('global');
   const runtime = runtimeChipFor(props.runtimeState);
+  const currentScope = currentScopeOf(props.runtimeState);
   const currentStatus = currentStatusOf(props.runtimeState);
 
   return (
@@ -738,6 +803,7 @@ function ActionRow(props: {
           {props.activeName}
         </span>
         <div className="flex-1" />
+        {currentScope === 'path' && <Chip variant="info-requested">PATH SCOPED</Chip>}
         {runtime ? (
           <Chip variant={runtime.variant}>{runtime.label}</Chip>
         ) : (
@@ -755,6 +821,7 @@ function ActionRow(props: {
           className="block w-full resize-y border border-border-strong bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-primary"
           data-testid="walkthrough-action-comment"
         />
+        <ScopeToggle scope={scope} onChange={setScope} disabled={props.isPending} />
         {props.error !== null && props.error !== undefined && (
           <div className="mt-2 text-sm text-error" data-testid="walkthrough-action-error">
             {String((props.error as Error).message ?? props.error)}
@@ -767,7 +834,7 @@ function ActionRow(props: {
           tone="approve"
           disabled={props.isPending}
           onClick={() => {
-            props.onAction('approved', comment.trim() || null);
+            props.onAction('approved', comment.trim() || null, scope);
             setComment('');
           }}
           testId="walkthrough-action-approve"
@@ -777,7 +844,7 @@ function ActionRow(props: {
           tone="reject"
           disabled={props.isPending}
           onClick={() => {
-            props.onAction('rejected', comment.trim() || null);
+            props.onAction('rejected', comment.trim() || null, scope);
             setComment('');
           }}
           testId="walkthrough-action-reject"
@@ -789,16 +856,27 @@ function ActionRow(props: {
           onClick={() => {
             const trimmed = comment.trim();
             if (!trimmed) return;
-            props.onAction('info_requested', trimmed);
+            props.onAction('info_requested', trimmed, scope);
             setComment('');
           }}
           testId="walkthrough-action-info"
         />
         <div className="flex-1" />
+        {currentScope === 'path' && (
+          <button
+            type="button"
+            onClick={() => props.onPromote()}
+            disabled={props.isPending}
+            className="border border-info-600 bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-info-600 hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="walkthrough-action-promote"
+          >
+            PROMOTE TO GLOBAL
+          </button>
+        )}
         {currentStatus && (
           <button
             type="button"
-            onClick={() => props.onClear()}
+            onClick={() => props.onClear(currentScope ?? 'global')}
             disabled={props.isPending}
             className="border border-border-strong bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-secondary hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="walkthrough-action-clear"
@@ -808,6 +886,124 @@ function ActionRow(props: {
         )}
       </div>
     </Panel>
+  );
+}
+
+function ScopeToggle(props: {
+  scope: 'global' | 'path';
+  onChange: (scope: 'global' | 'path') => void;
+  disabled: boolean;
+}) {
+  return (
+    <fieldset
+      className="mt-2 flex items-center gap-3 text-xs text-text-secondary"
+      data-testid="walkthrough-action-scope"
+    >
+      <DraftingLabel size="xs">APPLIES TO</DraftingLabel>
+      <ScopeRadio
+        value="global"
+        label="Globally"
+        sublabel="every encounter"
+        scope={props.scope}
+        onChange={props.onChange}
+        disabled={props.disabled}
+      />
+      <ScopeRadio
+        value="path"
+        label="This path"
+        sublabel="only here"
+        scope={props.scope}
+        onChange={props.onChange}
+        disabled={props.disabled}
+      />
+    </fieldset>
+  );
+}
+
+function ScopeRadio(props: {
+  value: 'global' | 'path';
+  label: string;
+  sublabel: string;
+  scope: 'global' | 'path';
+  onChange: (scope: 'global' | 'path') => void;
+  disabled: boolean;
+}) {
+  const active = props.scope === props.value;
+  return (
+    <label
+      className={[
+        'flex items-center gap-2 border px-2 py-1 cursor-pointer',
+        active ? 'border-primary bg-primary-soft' : 'border-border bg-surface',
+        props.disabled ? 'opacity-60 cursor-not-allowed' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      data-testid={`walkthrough-action-scope-${props.value}`}
+      data-active={active ? 'true' : 'false'}
+    >
+      <input
+        type="radio"
+        name="walkthrough-action-scope"
+        value={props.value}
+        checked={active}
+        disabled={props.disabled}
+        onChange={() => props.onChange(props.value)}
+        className="accent-primary"
+      />
+      <span className="font-mono text-xs uppercase tracking-widest text-text-primary">
+        {props.label}
+      </span>
+      <span className="font-mono text-[0.625rem] text-text-tertiary">{props.sublabel}</span>
+    </label>
+  );
+}
+
+function ReusePrompt(props: {
+  calleeName: string;
+  runtimeState: RuntimeState;
+  onSkip: () => void;
+  onReexamine: () => void;
+}) {
+  const chip = runtimeChipFor(props.runtimeState);
+  const updatedAt =
+    props.runtimeState.kind === 'reviewed_current' || props.runtimeState.kind === 'info_requested'
+      ? props.runtimeState.current.updatedAt
+      : props.runtimeState.kind === 'reviewed_stale'
+        ? props.runtimeState.prior.updatedAt
+        : null;
+  const dateLabel = updatedAt ? new Date(updatedAt).toLocaleDateString() : null;
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-3 border border-info-600 bg-info-soft px-3 py-2"
+      data-testid="walkthrough-reuse-prompt"
+    >
+      <DraftingLabel size="xs" tone="primary">
+        REUSE
+      </DraftingLabel>
+      <span className="font-mono text-xs text-text-primary">{props.calleeName}</span>
+      {chip && <Chip variant={chip.variant}>{chip.label}</Chip>}
+      {dateLabel && (
+        <span className="font-mono text-[0.625rem] text-text-tertiary">reviewed {dateLabel}</span>
+      )}
+      <div className="flex-1" />
+      <button
+        type="button"
+        onClick={props.onSkip}
+        className="border border-border-strong bg-surface px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-primary hover:bg-surface-sunken"
+        data-testid="walkthrough-reuse-skip"
+      >
+        SKIP
+      </button>
+      <button
+        type="button"
+        onClick={props.onReexamine}
+        className="border border-primary bg-primary px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-inverse hover:bg-primary-700"
+        data-testid="walkthrough-reuse-reexamine"
+      >
+        RE-EXAMINE
+      </button>
+    </div>
   );
 }
 
@@ -858,6 +1054,13 @@ function currentStatusOf(runtime: RuntimeState): ReviewStatus | null {
   if (runtime.kind === 'reviewed_current') return runtime.current.status;
   if (runtime.kind === 'info_requested') return runtime.current.status;
   if (runtime.kind === 'reviewed_stale') return runtime.prior.status;
+  return null;
+}
+
+function currentScopeOf(runtime: RuntimeState): 'global' | 'path' | null {
+  if (runtime.kind === 'reviewed_current') return runtime.current.scope.kind;
+  if (runtime.kind === 'info_requested') return runtime.current.scope.kind;
+  if (runtime.kind === 'reviewed_stale') return runtime.prior.scope.kind;
   return null;
 }
 
