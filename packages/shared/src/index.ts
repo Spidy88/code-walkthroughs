@@ -103,6 +103,19 @@ export {
   updateCommentInputSchema,
 } from './schemas/review.ts';
 
+export type {
+  AnswerPrepQuestionInput,
+  GetPrepQuestionInput,
+  ListPrepQuestionsInput,
+} from './schemas/prep.ts';
+export {
+  answerPrepQuestionInputSchema,
+  getPrepQuestionInputSchema,
+  listPrepQuestionsInputSchema,
+  prepAnswerPayloadSchema,
+  prepQuestionKindSchema,
+} from './schemas/prep.ts';
+
 export type { CreateRuleInput } from './schemas/rule.ts';
 export {
   createRuleInputSchema,
