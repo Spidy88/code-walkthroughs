@@ -90,6 +90,18 @@ export type AnalysisInput = {
    * of defaulting to the first resolvable one.
    */
   readonly branchAnswers?: ReadonlyMap<string, string>;
+  /**
+   * Snapshot of the analyzed_nodes table from the prior run. Lets
+   * detectRenameCandidates pair a removed-from-cache identity with a
+   * newly-added identity in the same file when their names look
+   * similar enough.
+   */
+  readonly priorAnalyzedNodes?: ReadonlyArray<{
+    readonly nodeIdentity: string;
+    readonly filePath: string;
+    readonly name: string;
+    readonly kind: string;
+  }>;
 };
 
 export type AnalysisOutput = {

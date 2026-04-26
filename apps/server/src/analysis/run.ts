@@ -4,6 +4,7 @@ import { type AnalysisOutput, runAnalysis } from '@cw/analyzer';
 import type { AnalysisRunSummary, AnalysisStage, CodebaseId, ProjectMeta } from '@cw/shared';
 import { and, eq, isNull, notInArray } from 'drizzle-orm';
 import type { OpenedCodebase } from '../codebase/open.ts';
+import { analyzedNodes } from '../db/schema/cache/index.ts';
 import { comments } from '../db/schema/state/comments.ts';
 import { prepAnswers } from '../db/schema/state/prep-answers.ts';
 import type { LlmClient } from '../llm/client.ts';
@@ -64,12 +65,25 @@ export async function runCodebaseAnalysis(
   // here.)
   const branchAnswers = await loadBranchAnswers(codebase);
 
+  // Snapshot the prior analyzed_nodes BEFORE persistAnalysis wipes
+  // the cache table, so detectRenameCandidates has the old identity
+  // set to compare against the freshly parsed files.
+  const priorAnalyzedNodes = await codebase.dbs.cache
+    .select({
+      nodeIdentity: analyzedNodes.nodeIdentity,
+      filePath: analyzedNodes.filePath,
+      name: analyzedNodes.name,
+      kind: analyzedNodes.kind,
+    })
+    .from(analyzedNodes);
+
   const output = await runAnalysis(jsTsAdapter, {
     project,
     files: collected.map((f) => ({ filePath: f.filePath, content: f.content })),
     llm: analyzerCallbacks,
     signal,
     branchAnswers,
+    priorAnalyzedNodes,
   });
 
   emit({ stage: 'persisting', fileCount: collected.length });

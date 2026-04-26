@@ -4,7 +4,9 @@ import { eq } from 'drizzle-orm';
 import type { CacheDb, StateDb } from '../db/codebase.ts';
 import { classifications } from '../db/schema/cache/classifications.ts';
 import { prepQuestions } from '../db/schema/cache/prep-questions.ts';
+import { comments } from '../db/schema/state/comments.ts';
 import { prepAnswers } from '../db/schema/state/prep-answers.ts';
+import { reviewHistory, reviewStatus } from '../db/schema/state/review.ts';
 
 export type PrepAnswerPayload =
   | { readonly kind: 'classification'; readonly classification: Classification }
@@ -158,6 +160,46 @@ export function createPrepService(input: {
         applied = answer.classification;
       } else if (answer.kind === 'path_branch' && q.kind === 'path_branch') {
         requiresReanalysis = true;
+      } else if (answer.kind === 'rename' && q.kind === 'rename') {
+        const ctx = q.context as { readonly oldIdentity: string; readonly newIdentity: string };
+        if (answer.decision === 'carry_forward') {
+          // Migrate every review_status row + un-archived comment
+          // from the old identity to the new one. The reviewer is
+          // explicitly saying "this is the same function with a new
+          // name, carry forward what I already decided."
+          await state
+            .update(reviewStatus)
+            .set({ nodeIdentity: ctx.newIdentity, updatedAt: ts })
+            .where(eq(reviewStatus.nodeIdentity, ctx.oldIdentity));
+          await state
+            .update(comments)
+            .set({ functionIdentity: ctx.newIdentity, updatedAt: ts })
+            .where(eq(comments.functionIdentity, ctx.oldIdentity));
+        } else {
+          // 'treat_as_new': archive the prior review rows so they
+          // don't dangle in state.db forever. The new function
+          // starts from never_reviewed.
+          const stale = await state
+            .select()
+            .from(reviewStatus)
+            .where(eq(reviewStatus.nodeIdentity, ctx.oldIdentity));
+          for (const row of stale) {
+            await state.insert(reviewHistory).values({
+              id: ulid(),
+              nodeIdentity: row.nodeIdentity,
+              scope: row.scope,
+              status: row.status,
+              comment: row.comment,
+              codeHash: row.codeHash,
+              reviewerId: row.reviewerId,
+              createdAt: row.createdAt,
+              updatedAt: row.updatedAt,
+              supersededAt: ts,
+              reason: 'rename_treat_as_new',
+            });
+          }
+          await state.delete(reviewStatus).where(eq(reviewStatus.nodeIdentity, ctx.oldIdentity));
+        }
       }
 
       return { answered: true, appliedClassification: applied, requiresReanalysis };

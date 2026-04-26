@@ -5,13 +5,14 @@ import { classifyFilesStage2 } from './classify/stage2.ts';
 import { generateStage3PrepQuestions } from './classify/stage3.ts';
 import { detectPaths } from './paths/detect.ts';
 import { resolveCrossFileCallEdges } from './paths/resolve-cross-file.ts';
+import { detectRenameCandidates } from './renames/detect.ts';
 import type { AnalysisInput, AnalysisOutput } from './types.ts';
 
 export async function runAnalysis(
   adapter: LanguageAdapter,
   input: AnalysisInput,
 ): Promise<AnalysisOutput> {
-  const { project, files, llm, signal, branchAnswers } = input;
+  const { project, files, llm, signal, branchAnswers, priorAnalyzedNodes } = input;
 
   const parsedFiles: ParseOutput[] = [];
   for (const file of files) {
@@ -75,7 +76,18 @@ export async function runAnalysis(
     ...(branchAnswers !== undefined ? { branchAnswers } : {}),
   });
 
-  const prepQuestions = [...generateStage3PrepQuestions({ classifications }), ...branchQuestions];
+  const renameCandidates = priorAnalyzedNodes
+    ? detectRenameCandidates({
+        priorNodes: priorAnalyzedNodes,
+        currentFiles: resolvedFiles,
+      })
+    : [];
+
+  const prepQuestions = [
+    ...generateStage3PrepQuestions({ classifications }),
+    ...branchQuestions,
+    ...renameCandidates,
+  ];
 
   return {
     project,
