@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as RulesRouteImport } from './routes/rules'
 import { Route as ProgressRouteImport } from './routes/progress'
 import { Route as PrepRouteImport } from './routes/prep'
+import { Route as ComparisonRouteImport } from './routes/comparison'
 import { Route as CodebaseRouteImport } from './routes/codebase'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DevStylesRouteImport } from './routes/dev/styles'
@@ -33,6 +34,11 @@ const ProgressRoute = ProgressRouteImport.update({
 const PrepRoute = PrepRouteImport.update({
   id: '/prep',
   path: '/prep',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComparisonRoute = ComparisonRouteImport.update({
+  id: '/comparison',
+  path: '/comparison',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CodebaseRoute = CodebaseRouteImport.update({
@@ -77,6 +83,7 @@ const ProjectProjectIdFilesSplatRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
+  '/comparison': typeof ComparisonRoute
   '/prep': typeof PrepRoute
   '/progress': typeof ProgressRoute
   '/rules': typeof RulesRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
+  '/comparison': typeof ComparisonRoute
   '/prep': typeof PrepRoute
   '/progress': typeof ProgressRoute
   '/rules': typeof RulesRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
+  '/comparison': typeof ComparisonRoute
   '/prep': typeof PrepRoute
   '/progress': typeof ProgressRoute
   '/rules': typeof RulesRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/codebase'
+    | '/comparison'
     | '/prep'
     | '/progress'
     | '/rules'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/codebase'
+    | '/comparison'
     | '/prep'
     | '/progress'
     | '/rules'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/codebase'
+    | '/comparison'
     | '/prep'
     | '/progress'
     | '/rules'
@@ -153,6 +165,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CodebaseRoute: typeof CodebaseRoute
+  ComparisonRoute: typeof ComparisonRoute
   PrepRoute: typeof PrepRoute
   ProgressRoute: typeof ProgressRoute
   RulesRoute: typeof RulesRoute
@@ -184,6 +197,13 @@ declare module '@tanstack/react-router' {
       path: '/prep'
       fullPath: '/prep'
       preLoaderRoute: typeof PrepRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/comparison': {
+      id: '/comparison'
+      path: '/comparison'
+      fullPath: '/comparison'
+      preLoaderRoute: typeof ComparisonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/codebase': {
@@ -241,6 +261,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CodebaseRoute: CodebaseRoute,
+  ComparisonRoute: ComparisonRoute,
   PrepRoute: PrepRoute,
   ProgressRoute: ProgressRoute,
   RulesRoute: RulesRoute,
