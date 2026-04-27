@@ -75,6 +75,52 @@ export function computeComparisonDelta(input: {
         note: `${id.split(':').at(-1) ?? id} is no longer exported`,
       });
     }
+
+    // Param + return-type changes (chunk 24). Only meaningful when
+    // both sides have a signature — file-level pseudo-nodes don't.
+    if (base !== null && head !== null && base.signature && head.signature) {
+      const baseParams = base.signature.params;
+      const headParams = head.signature.params;
+      const symbolName = id.split(':').at(-1) ?? id;
+      if (baseParams.length < headParams.length) {
+        contractChanges.push({
+          id: hashCanonical({ kind: 'param_added', nodeIdentity: id }),
+          nodeIdentity: id,
+          kind: 'param_added',
+          base,
+          head,
+          note: `${symbolName} gained ${headParams.length - baseParams.length} parameter(s)`,
+        });
+      } else if (baseParams.length > headParams.length) {
+        contractChanges.push({
+          id: hashCanonical({ kind: 'param_removed', nodeIdentity: id }),
+          nodeIdentity: id,
+          kind: 'param_removed',
+          base,
+          head,
+          note: `${symbolName} lost ${baseParams.length - headParams.length} parameter(s)`,
+        });
+      } else if (baseParams.join('|') !== headParams.join('|')) {
+        contractChanges.push({
+          id: hashCanonical({ kind: 'param_type_changed', nodeIdentity: id }),
+          nodeIdentity: id,
+          kind: 'param_type_changed',
+          base,
+          head,
+          note: `${symbolName} parameter shape changed`,
+        });
+      }
+      if (base.signature.returnType !== head.signature.returnType) {
+        contractChanges.push({
+          id: hashCanonical({ kind: 'return_type_changed', nodeIdentity: id }),
+          nodeIdentity: id,
+          kind: 'return_type_changed',
+          base,
+          head,
+          note: `${symbolName} return type ${base.signature.returnType || '<inferred>'} → ${head.signature.returnType || '<inferred>'}`,
+        });
+      }
+    }
   }
 
   // Path deltas keyed off entry.nodeIdentity so a path's identity
@@ -174,16 +220,22 @@ export function computeComparisonDelta(input: {
   return { contractChanges, affectedCallers, pathDeltas, indirectImpactPaths };
 }
 
-function signaturesFor(output: AnalysisOutput): Map<string, NodeSignature> {
-  const m = new Map<string, NodeSignature>();
+type EnrichedSignature = NodeSignature & {
+  /** Pulled directly off AnalyzedNode.signature when the adapter set it. */
+  readonly signature?: import('@cw/shared').FunctionSignature;
+};
+
+function signaturesFor(output: AnalysisOutput): Map<string, EnrichedSignature> {
+  const m = new Map<string, EnrichedSignature>();
   for (const f of output.parsedFiles) {
     for (const node of f.nodes) {
       m.set(node.identity, {
         nodeIdentity: node.identity,
         exported: node.exported,
-        params: '',
-        returnType: '',
+        params: node.signature ? node.signature.params.join('|') : '',
+        returnType: node.signature?.returnType ?? '',
         contentHash: node.contentHash,
+        ...(node.signature !== undefined ? { signature: node.signature } : {}),
       });
     }
   }

@@ -1,4 +1,4 @@
-import type { AnalyzedFile, AnalyzedNode, NodeIdentity } from '@cw/shared';
+import type { AnalyzedFile, AnalyzedNode, FunctionSignature, NodeIdentity } from '@cw/shared';
 import { sha256 } from '@cw/shared';
 import {
   type ArrowFunction,
@@ -21,6 +21,7 @@ type SymbolEntry = {
   readonly contentHash: string;
   readonly startPos: number;
   readonly endPos: number;
+  readonly signature?: FunctionSignature;
 };
 
 export function parseJsTs(input: ParseInput): ParseOutput {
@@ -57,6 +58,7 @@ export function parseJsTs(input: ParseInput): ParseOutput {
     endLine: s.endLine,
     exported: s.exported,
     contentHash: s.contentHash,
+    ...(s.signature !== undefined ? { signature: s.signature } : {}),
   }));
 
   return {
@@ -147,6 +149,7 @@ function makeSymbol(
   const endLine = node.getEndLineNumber();
   const slice = content.slice(startPos, endPos);
   const contentHash = sha256(normalizeNodeText(slice));
+  const signature = extractSignature(node);
   return {
     identity: makeNodeIdentity(projectId, filePath, symbolPath),
     name: symbolPath.split('.').at(-1) ?? symbolPath,
@@ -157,7 +160,46 @@ function makeSymbol(
     contentHash,
     startPos,
     endPos,
+    ...(signature !== undefined ? { signature } : {}),
   };
+}
+
+/**
+ * Pull params + return type from any callable AST node. The
+ * comparison delta uses these strings for param_type_changed /
+ * return_type_changed contract changes — exact-match diff over the
+ * declared types is the v1 heuristic. False positives on whitespace
+ * or formatting changes are intentional: they catch refactors a
+ * line-based diff would miss.
+ */
+function extractSignature(node: Node): FunctionSignature | undefined {
+  // VariableDeclaration: pull the initializer (arrow / function-expr).
+  let target: Node = node;
+  if (Node.isVariableDeclaration(node)) {
+    const init = node.getInitializer();
+    if (!init) return undefined;
+    target = init;
+  }
+  if (
+    !Node.isFunctionDeclaration(target) &&
+    !Node.isMethodDeclaration(target) &&
+    !Node.isArrowFunction(target) &&
+    !Node.isFunctionExpression(target)
+  ) {
+    return undefined;
+  }
+  const fn = target as {
+    getParameters(): Array<{ getText(): string }>;
+    getReturnTypeNode?(): Node | undefined;
+  };
+  const params = fn.getParameters().map((p) => p.getText());
+  // Prefer the explicit return-type annotation when one is written.
+  // Inferring via the type checker works but requires Project setup
+  // costs we already absorb — keep this fast, type-checker fallback
+  // is a future refinement.
+  const returnTypeNode = fn.getReturnTypeNode?.();
+  const returnType = returnTypeNode ? returnTypeNode.getText() : '';
+  return { params, returnType };
 }
 
 function normalizeNodeText(text: string): string {
