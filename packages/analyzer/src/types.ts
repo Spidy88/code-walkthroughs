@@ -24,6 +24,30 @@ export type AnalysisLlmCallback = {
   readonly generatePrepSuggestion?: (
     input: PrepSuggestionInput,
   ) => Promise<PrepSuggestionResponse | null>;
+  readonly categorizePaths?: (
+    input: PathCategorizationInput,
+  ) => Promise<PathCategorizationResponse | null>;
+};
+
+/**
+ * One path candidate for the LLM categoriser. The signature includes
+ * the entry function name + source file + an early slice of the
+ * path's call sequence so the model has enough surface to spot the
+ * underlying feature without us shipping the whole codebase.
+ */
+export type PathCategorizationInput = {
+  readonly project: ProjectMeta;
+  readonly paths: readonly {
+    readonly pathId: string;
+    readonly entryName: string;
+    readonly entryFilePath: string;
+    readonly nodeNames: readonly string[];
+  }[];
+};
+
+export type PathCategorizationResponse = {
+  readonly categories: readonly { readonly name: string; readonly order: number }[];
+  readonly assignments: readonly { readonly pathId: string; readonly category: string }[];
 };
 
 export type ArchitecturalPassInput = {

@@ -69,13 +69,60 @@ export async function runAnalysis(
     f.detectEntryPoints({ project, files: resolvedFiles }),
   );
 
-  const { paths, pathNodes, branchQuestions } = detectPaths({
+  const detection = detectPaths({
     entryPoints,
     files: resolvedFiles,
     projectId: project.id,
     ...(signal !== undefined ? { signal } : {}),
     ...(branchAnswers !== undefined ? { branchAnswers } : {}),
   });
+  const pathNodes = detection.pathNodes;
+  const branchQuestions = detection.branchQuestions;
+  let paths = detection.paths;
+
+  // LLM path categorisation. Replaces the deterministic basename-
+  // grouped categories with reviewer-meaningful ones (auth, billing,
+  // order lifecycle…) when the LLM-on path is wired. Off when the
+  // callback is absent — the deterministic categories stay.
+  if (llm?.categorizePaths && paths.length > 0) {
+    const entryByPathId = new Map<string, EntryPoint>();
+    for (const p of paths) {
+      const entry = entryPoints.find((e) => e.id === p.entryPointId);
+      if (entry) entryByPathId.set(p.id, entry);
+    }
+    const nodesByPathId = new Map<string, string[]>();
+    for (const n of pathNodes) {
+      const arr = nodesByPathId.get(n.pathId) ?? [];
+      arr.push(n.nodeIdentity.split(':').at(-1) ?? '');
+      nodesByPathId.set(n.pathId, arr);
+    }
+    const categorization = await llm.categorizePaths({
+      project,
+      paths: paths.map((p) => {
+        const entry = entryByPathId.get(p.id);
+        const fileName = entry?.nodeIdentity.split(':')[1] ?? '';
+        return {
+          pathId: p.id,
+          entryName: entry?.nodeIdentity.split(':').at(-1) ?? '',
+          entryFilePath: fileName,
+          nodeNames: nodesByPathId.get(p.id) ?? [],
+        };
+      }),
+    });
+    if (categorization) {
+      const orderByCategory = new Map(categorization.categories.map((c) => [c.name, c.order]));
+      const assignmentByPath = new Map(
+        categorization.assignments.map((a) => [a.pathId, a.category]),
+      );
+      paths = paths.map((p) => {
+        const category = assignmentByPath.get(p.id) ?? p.category;
+        const order: number | null = category
+          ? (orderByCategory.get(category) ?? p.categoryOrder ?? null)
+          : (p.categoryOrder ?? null);
+        return { ...p, category, categoryOrder: order };
+      });
+    }
+  }
 
   const renameCandidates = priorAnalyzedNodes
     ? detectRenameCandidates({

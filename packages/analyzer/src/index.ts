@@ -7,6 +7,8 @@ export type {
   BranchResolution,
   BranchResolutionInput,
   ClassificationResult,
+  PathCategorizationInput,
+  PathCategorizationResponse,
   PrepSuggestionInput,
   PrepSuggestionResponse,
   Stage2Input,

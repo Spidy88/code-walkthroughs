@@ -4,6 +4,8 @@ import type {
   ArchitecturalPassInput,
   BranchResolution,
   BranchResolutionInput,
+  PathCategorizationInput,
+  PathCategorizationResponse,
   PrepSuggestionInput,
   PrepSuggestionResponse,
   Stage2Input,
@@ -37,12 +39,28 @@ const prepSuggestionSchema = z.object({
   alternatives: z.array(z.unknown()),
 });
 
+const pathCategorizationSchema = z.object({
+  categories: z.array(
+    z.object({
+      name: z.string().min(1).max(80),
+      order: z.number().int(),
+    }),
+  ),
+  assignments: z.array(
+    z.object({
+      pathId: z.string().min(1),
+      category: z.string().min(1).max(80),
+    }),
+  ),
+});
+
 export function createAnalyzerCallbacks(client: LlmClient): AnalysisLlmCallback {
   return {
     architecturalPass: async (input) => callArchitectural(client, input),
     classifyStage2: async (input) => callStage2(client, input),
     resolveBranch: async (input) => callBranchResolution(client, input),
     generatePrepSuggestion: async (input) => callPrepSuggestion(client, input),
+    categorizePaths: async (input) => callPathCategorization(client, input),
   };
 }
 
@@ -160,6 +178,42 @@ async function callPrepSuggestion(
   const unwrapped = unwrap(result);
   if (!unwrapped) return null;
   return unwrapped as PrepSuggestionResponse;
+}
+
+async function callPathCategorization(
+  client: LlmClient,
+  input: PathCategorizationInput,
+): Promise<PathCategorizationResponse | null> {
+  const result = await client.call({
+    pipeline: 'pathCategorization',
+    promptName: 'path-categorization',
+    promptVersion: '1',
+    model: llmModels.pathCategorization,
+    systemPrompt:
+      'You group execution paths into reviewer-meaningful feature categories — think "authentication", "order lifecycle", "billing", not "GET routes" or "database queries". ' +
+      'Pick 3-7 categories total. Order them so the most reviewer-critical (auth, billing) come first. ' +
+      'Every pathId must be assigned to exactly one named category. ' +
+      'Respond with JSON { categories: [{ name, order }], assignments: [{ pathId, category }] }.',
+    messages: [
+      {
+        role: 'user',
+        content: JSON.stringify({
+          project: input.project.name,
+          paths: input.paths,
+        }),
+      },
+    ],
+    input: {
+      paths: input.paths.map((p) => ({
+        pathId: p.pathId,
+        entryName: p.entryName,
+        entryFilePath: p.entryFilePath,
+        nodeNames: p.nodeNames,
+      })),
+    },
+    responseSchema: pathCategorizationSchema,
+  });
+  return unwrap(result);
 }
 
 function unwrap<T>(result: LlmResult<T>): T | null {

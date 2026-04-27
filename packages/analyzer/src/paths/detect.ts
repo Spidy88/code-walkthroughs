@@ -35,34 +35,26 @@ const DEFAULT_DEPTH = 8;
 
 /**
  * Deterministic categoriser used when the LLM categoriser is off
- * (the v1 default). Buckets paths by entry-point shape so the
- * project overview groups e.g. all "GET route" paths together.
- * Order picks the conventional REST verb sort with "other" at the
- * end, so the path list reads top-to-bottom in the order a reviewer
- * usually wants to walk it.
+ * (the v1 default). Buckets paths by the basename of the entry's
+ * source file so reviewers see "all order routes", "all session
+ * routes", etc. — closer to feature grouping than HTTP-verb
+ * grouping. Ordering is alphabetical; the LLM categoriser produces
+ * better names + an intentional order when available.
  */
-const HTTP_METHOD_ORDER: Record<string, number> = {
-  GET: 0,
-  POST: 1,
-  PUT: 2,
-  PATCH: 3,
-  DELETE: 4,
-};
-
 function deterministicCategoryFor(entry: EntryPoint): {
   category: string | null;
   categoryOrder: number | null;
 } {
-  if (entry.kind === 'http_route') {
-    const method = String((entry.metadata as { method?: string }).method ?? '').toUpperCase();
-    if (method) {
-      return {
-        category: `${method} routes`,
-        categoryOrder: HTTP_METHOD_ORDER[method] ?? 99,
-      };
-    }
-  }
-  return { category: 'other', categoryOrder: 100 };
+  // nodeIdentity is `<projectId>:<filePath>:<symbol>`. Pull the
+  // basename without extension to use as the bucket label.
+  const parts = entry.nodeIdentity.split(':');
+  const filePath = parts.length >= 2 ? (parts[1] ?? '') : '';
+  const fileName = filePath.split('/').at(-1) ?? '';
+  const basename = fileName.replace(/\.[^.]+$/, '');
+  const category = basename || 'other';
+  // Alphabetical order; ties broken stably by the bucket name.
+  const categoryOrder = category === 'other' ? 999 : category.charCodeAt(0);
+  return { category, categoryOrder };
 }
 
 export function branchKey(entryNodeIdentity: NodeIdentity, callerIdentity: NodeIdentity): string {
