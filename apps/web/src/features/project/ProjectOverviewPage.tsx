@@ -115,7 +115,10 @@ export function ProjectOverviewPage() {
           isLoading={entries.isLoading || pathsQuery.isLoading}
           error={entries.error ?? pathsQuery.error}
         />
-        <FooterNav projectId={projectId} />
+        <FooterNav
+          projectId={projectId}
+          isGitRepo={(status.data?.active as { isGitRepo?: boolean } | null)?.isGitRepo ?? false}
+        />
       </div>
     </main>
   );
@@ -278,7 +281,7 @@ function EntryRow(props: {
   );
 }
 
-function FooterNav(props: { projectId: string }) {
+function FooterNav(props: { projectId: string; isGitRepo: boolean }) {
   return (
     <div className="flex items-center gap-3 pt-2">
       <Link
@@ -316,13 +319,23 @@ function FooterNav(props: { projectId: string }) {
       >
         PROGRESS →
       </Link>
-      <Link
-        to="/comparison"
-        className="border border-primary bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-primary hover:bg-primary-soft"
-        data-testid="project-overview-comparison-link"
-      >
-        COMPARISON →
-      </Link>
+      {props.isGitRepo ? (
+        <Link
+          to="/comparison"
+          className="border border-primary bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-primary hover:bg-primary-soft"
+          data-testid="project-overview-comparison-link"
+        >
+          COMPARISON →
+        </Link>
+      ) : (
+        <span
+          className="border border-border bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-tertiary"
+          title="Comparison mode requires a git repository"
+          data-testid="project-overview-comparison-link-disabled"
+        >
+          COMPARISON · NO GIT
+        </span>
+      )}
       <span className="font-mono text-xs text-text-tertiary">project: {props.projectId}</span>
     </div>
   );
