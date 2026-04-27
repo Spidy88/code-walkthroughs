@@ -1,6 +1,7 @@
 import { analysisRouter } from './analysis.ts';
 import { appRouter } from './app.ts';
 import { codebaseRouter } from './codebase.ts';
+import { comparisonRouter } from './comparison.ts';
 import { prepRouter } from './prep.ts';
 import { progressRouter } from './progress.ts';
 import { reviewRouter } from './review.ts';
@@ -12,6 +13,7 @@ export const rootRouter = router({
   app: appRouter,
   codebase: codebaseRouter,
   analysis: analysisRouter,
+  comparison: comparisonRouter,
   prep: prepRouter,
   progress: progressRouter,
   review: reviewRouter,

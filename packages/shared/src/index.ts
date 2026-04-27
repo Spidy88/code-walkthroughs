@@ -22,6 +22,20 @@ export type {
 export { IDLE_PROGRESS } from './types/analysis-progress.ts';
 
 export type { AnalyzedFile, AnalyzedNode, NodeIdentity } from './types/node.ts';
+export {
+  contractChangeKinds,
+  pathDeltaClassifications,
+} from './types/comparison.ts';
+export type {
+  AffectedCaller,
+  ComparisonDelta,
+  ContractChange,
+  ContractChangeKind,
+  IndirectImpactPath,
+  NodeSignature,
+  PathDelta,
+  PathDeltaClassification,
+} from './types/comparison.ts';
 
 export type {
   DetectedPath,
