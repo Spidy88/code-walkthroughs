@@ -118,6 +118,17 @@ function runStateMigrations(sqlite: Database.Database): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS project_rules (
+      id TEXT PRIMARY KEY,
+      classification TEXT NOT NULL,
+      title TEXT NOT NULL,
+      tier TEXT NOT NULL,
+      definition TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 

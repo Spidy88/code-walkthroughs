@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RulesRouteImport } from './routes/rules'
 import { Route as PrepRouteImport } from './routes/prep'
 import { Route as CodebaseRouteImport } from './routes/codebase'
 import { Route as IndexRouteImport } from './routes/index'
@@ -18,6 +19,11 @@ import { Route as ProjectProjectIdFilesIndexRouteImport } from './routes/project
 import { Route as ProjectProjectIdPathPathIdRouteImport } from './routes/project/$projectId/path.$pathId'
 import { Route as ProjectProjectIdFilesSplatRouteImport } from './routes/project/$projectId/files/$'
 
+const RulesRoute = RulesRouteImport.update({
+  id: '/rules',
+  path: '/rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrepRoute = PrepRouteImport.update({
   id: '/prep',
   path: '/prep',
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
   '/prep': typeof PrepRoute
+  '/rules': typeof RulesRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
   '/project/$projectId/files/$': typeof ProjectProjectIdFilesSplatRoute
@@ -76,6 +83,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
   '/prep': typeof PrepRoute
+  '/rules': typeof RulesRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId': typeof ProjectProjectIdIndexRoute
   '/project/$projectId/files/$': typeof ProjectProjectIdFilesSplatRoute
@@ -87,6 +95,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
   '/prep': typeof PrepRoute
+  '/rules': typeof RulesRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
   '/project/$projectId/files/$': typeof ProjectProjectIdFilesSplatRoute
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/'
     | '/codebase'
     | '/prep'
+    | '/rules'
     | '/dev/styles'
     | '/project/$projectId/'
     | '/project/$projectId/files/$'
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/'
     | '/codebase'
     | '/prep'
+    | '/rules'
     | '/dev/styles'
     | '/project/$projectId'
     | '/project/$projectId/files/$'
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/'
     | '/codebase'
     | '/prep'
+    | '/rules'
     | '/dev/styles'
     | '/project/$projectId/'
     | '/project/$projectId/files/$'
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CodebaseRoute: typeof CodebaseRoute
   PrepRoute: typeof PrepRoute
+  RulesRoute: typeof RulesRoute
   DevStylesRoute: typeof DevStylesRoute
   ProjectProjectIdIndexRoute: typeof ProjectProjectIdIndexRoute
   ProjectProjectIdFilesSplatRoute: typeof ProjectProjectIdFilesSplatRoute
@@ -139,6 +152,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/rules': {
+      id: '/rules'
+      path: '/rules'
+      fullPath: '/rules'
+      preLoaderRoute: typeof RulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/prep': {
       id: '/prep'
       path: '/prep'
@@ -202,6 +222,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CodebaseRoute: CodebaseRoute,
   PrepRoute: PrepRoute,
+  RulesRoute: RulesRoute,
   DevStylesRoute: DevStylesRoute,
   ProjectProjectIdIndexRoute: ProjectProjectIdIndexRoute,
   ProjectProjectIdFilesSplatRoute: ProjectProjectIdFilesSplatRoute,
