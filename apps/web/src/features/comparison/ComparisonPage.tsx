@@ -74,6 +74,15 @@ export function ComparisonPage() {
   const [baseSrc, setBaseSrc] = useState(SAMPLE_BASE);
   const [headSrc, setHeadSrc] = useState(SAMPLE_HEAD);
   const [delta, setDelta] = useState<Delta | null>(null);
+  const [mode, setMode] = useState<'refs' | 'paste'>('refs');
+  const [baseRef, setBaseRef] = useState('main');
+  const [headRef, setHeadRef] = useState('HEAD');
+  const [meta, setMeta] = useState<{
+    readonly baseSha: string;
+    readonly headSha: string;
+    readonly baseFileCount: number;
+    readonly headFileCount: number;
+  } | null>(null);
 
   const runMutation = useMutation({
     mutationFn: (input: { base: string; head: string }) =>
@@ -81,8 +90,28 @@ export function ComparisonPage() {
         base: [{ filePath: 'sample.ts', content: input.base }],
         head: [{ filePath: 'sample.ts', content: input.head }],
       }),
-    onSuccess: (d) => setDelta(d as Delta),
+    onSuccess: (d) => {
+      setDelta(d as Delta);
+      setMeta(null);
+    },
   });
+
+  const runRefsMutation = useMutation({
+    mutationFn: (input: { baseRef: string; headRef: string }) =>
+      trpcClient.comparison.runRefs.mutate(input),
+    onSuccess: (result) => {
+      setDelta(result.delta as Delta);
+      setMeta({
+        baseSha: result.baseSha,
+        headSha: result.headSha,
+        baseFileCount: result.baseFileCount,
+        headFileCount: result.headFileCount,
+      });
+    },
+  });
+
+  const isPending = runMutation.isPending || runRefsMutation.isPending;
+  const submitError = runMutation.error ?? runRefsMutation.error;
 
   return (
     <main className="dot-grid min-h-screen p-8">
@@ -107,55 +136,108 @@ export function ComparisonPage() {
           >
             ← PICKER
           </Link>
-          <span className="font-mono text-xs text-text-tertiary">
-            v1 takes two filesets directly. Git-ref orchestration is a follow-up.
-          </span>
+          {meta && (
+            <span className="font-mono text-xs text-text-tertiary" data-testid="comparison-meta">
+              base {meta.baseSha.slice(0, 8)} ({meta.baseFileCount} files) · head{' '}
+              {meta.headSha.slice(0, 8)} ({meta.headFileCount} files)
+            </span>
+          )}
         </div>
 
         <Panel>
           <PanelHeader tone="sunken">
             <DraftingLabel size="sm">FIG. S · SETUP</DraftingLabel>
+            <div className="flex-1" />
+            <div className="flex items-center gap-1">
+              {(['refs', 'paste'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={[
+                    'border px-2 py-0.5 font-mono text-[0.625rem] uppercase tracking-widest',
+                    mode === m
+                      ? 'border-primary bg-primary text-text-inverse'
+                      : 'border-border-strong bg-surface text-text-primary',
+                  ].join(' ')}
+                  data-testid={`comparison-mode-${m}`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
           </PanelHeader>
           <PanelBody>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <DraftingLabel size="xs">BASE</DraftingLabel>
-                <textarea
-                  rows={10}
-                  value={baseSrc}
-                  onChange={(e) => setBaseSrc(e.target.value)}
-                  disabled={runMutation.isPending}
-                  className="mt-1 block w-full resize-y border border-border-strong bg-surface px-2 py-1 font-mono text-[0.6875rem] leading-[1.55] text-text-primary outline-none focus:border-primary"
-                  data-testid="comparison-base-source"
-                />
+            {mode === 'refs' ? (
+              <div className="grid grid-cols-2 gap-3" data-testid="comparison-refs-form">
+                <div>
+                  <DraftingLabel size="xs">BASE REF</DraftingLabel>
+                  <input
+                    value={baseRef}
+                    onChange={(e) => setBaseRef(e.target.value)}
+                    disabled={isPending}
+                    placeholder="main"
+                    className="mt-1 block w-full border border-border-strong bg-surface px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-primary"
+                    data-testid="comparison-base-ref"
+                  />
+                </div>
+                <div>
+                  <DraftingLabel size="xs">HEAD REF</DraftingLabel>
+                  <input
+                    value={headRef}
+                    onChange={(e) => setHeadRef(e.target.value)}
+                    disabled={isPending}
+                    placeholder="HEAD"
+                    className="mt-1 block w-full border border-border-strong bg-surface px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-primary"
+                    data-testid="comparison-head-ref"
+                  />
+                </div>
               </div>
-              <div>
-                <DraftingLabel size="xs">HEAD</DraftingLabel>
-                <textarea
-                  rows={10}
-                  value={headSrc}
-                  onChange={(e) => setHeadSrc(e.target.value)}
-                  disabled={runMutation.isPending}
-                  className="mt-1 block w-full resize-y border border-border-strong bg-surface px-2 py-1 font-mono text-[0.6875rem] leading-[1.55] text-text-primary outline-none focus:border-primary"
-                  data-testid="comparison-head-source"
-                />
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <DraftingLabel size="xs">BASE SOURCE</DraftingLabel>
+                  <textarea
+                    rows={10}
+                    value={baseSrc}
+                    onChange={(e) => setBaseSrc(e.target.value)}
+                    disabled={isPending}
+                    className="mt-1 block w-full resize-y border border-border-strong bg-surface px-2 py-1 font-mono text-[0.6875rem] leading-[1.55] text-text-primary outline-none focus:border-primary"
+                    data-testid="comparison-base-source"
+                  />
+                </div>
+                <div>
+                  <DraftingLabel size="xs">HEAD SOURCE</DraftingLabel>
+                  <textarea
+                    rows={10}
+                    value={headSrc}
+                    onChange={(e) => setHeadSrc(e.target.value)}
+                    disabled={isPending}
+                    className="mt-1 block w-full resize-y border border-border-strong bg-surface px-2 py-1 font-mono text-[0.6875rem] leading-[1.55] text-text-primary outline-none focus:border-primary"
+                    data-testid="comparison-head-source"
+                  />
+                </div>
               </div>
-            </div>
-            {runMutation.error && (
+            )}
+            {submitError !== null && submitError !== undefined && (
               <div className="mt-2 text-sm text-error" data-testid="comparison-error">
-                {String((runMutation.error as Error).message ?? runMutation.error)}
+                {String((submitError as Error).message ?? submitError)}
               </div>
             )}
           </PanelBody>
           <div className="flex items-center justify-end border-t border-border bg-surface-sunken px-3.5 py-2">
             <button
               type="button"
-              onClick={() => runMutation.mutate({ base: baseSrc, head: headSrc })}
-              disabled={runMutation.isPending}
+              onClick={() =>
+                mode === 'refs'
+                  ? runRefsMutation.mutate({ baseRef, headRef })
+                  : runMutation.mutate({ base: baseSrc, head: headSrc })
+              }
+              disabled={isPending}
               className="border border-primary bg-primary px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-text-inverse hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
               data-testid="comparison-run"
             >
-              Run comparison
+              {isPending ? 'Running…' : 'Run comparison'}
             </button>
           </div>
         </Panel>

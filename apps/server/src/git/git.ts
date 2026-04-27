@@ -11,6 +11,17 @@ export type Git = {
   ): Promise<
     readonly { readonly status: string; readonly path: string; readonly oldPath?: string }[]
   >;
+  /**
+   * List the file paths in the given ref's tree. Used by comparison
+   * mode to materialise (base, head) without checking out a worktree.
+   */
+  listFilesAtRef(ref: string): Promise<readonly string[]>;
+  /**
+   * Read one file's content at the given ref. Returns null when the
+   * file doesn't exist at that ref (e.g. `git show base:src/foo.ts`
+   * for a file that's only in head).
+   */
+  readFileAtRef(ref: string, path: string): Promise<string | null>;
 };
 
 export function createGit(cwd: string, logger: Logger): Git {
@@ -67,6 +78,27 @@ export function createGit(cwd: string, logger: Logger): Git {
           }
           return { status, path: parts[1] ?? '' };
         });
+    },
+    async listFilesAtRef(ref) {
+      const out = await run(['ls-tree', '-r', '--name-only', ref]);
+      return out
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+    },
+    async readFileAtRef(ref, path) {
+      // Use `git show <ref>:<path>`. Non-existent files exit with
+      // code 128 — return null rather than throwing so the caller
+      // can map "file added in head" / "file removed in base" cases.
+      const result = await execa('git', ['show', `${ref}:${path}`], {
+        cwd,
+        reject: false,
+        // Ensure we get raw bytes; git show otherwise applies its
+        // text-conversion config which could strip BOMs etc.
+        encoding: 'utf8',
+      });
+      if (result.exitCode !== 0) return null;
+      return result.stdout;
     },
   };
 }
