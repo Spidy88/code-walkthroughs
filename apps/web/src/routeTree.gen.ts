@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as RulesRouteImport } from './routes/rules'
+import { Route as ProgressRouteImport } from './routes/progress'
 import { Route as PrepRouteImport } from './routes/prep'
 import { Route as CodebaseRouteImport } from './routes/codebase'
 import { Route as IndexRouteImport } from './routes/index'
@@ -22,6 +23,11 @@ import { Route as ProjectProjectIdFilesSplatRouteImport } from './routes/project
 const RulesRoute = RulesRouteImport.update({
   id: '/rules',
   path: '/rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProgressRoute = ProgressRouteImport.update({
+  id: '/progress',
+  path: '/progress',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrepRoute = PrepRouteImport.update({
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
   '/prep': typeof PrepRoute
+  '/progress': typeof ProgressRoute
   '/rules': typeof RulesRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
   '/prep': typeof PrepRoute
+  '/progress': typeof ProgressRoute
   '/rules': typeof RulesRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId': typeof ProjectProjectIdIndexRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/codebase': typeof CodebaseRoute
   '/prep': typeof PrepRoute
+  '/progress': typeof ProgressRoute
   '/rules': typeof RulesRoute
   '/dev/styles': typeof DevStylesRoute
   '/project/$projectId/': typeof ProjectProjectIdIndexRoute
@@ -108,6 +117,7 @@ export interface FileRouteTypes {
     | '/'
     | '/codebase'
     | '/prep'
+    | '/progress'
     | '/rules'
     | '/dev/styles'
     | '/project/$projectId/'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/'
     | '/codebase'
     | '/prep'
+    | '/progress'
     | '/rules'
     | '/dev/styles'
     | '/project/$projectId'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/'
     | '/codebase'
     | '/prep'
+    | '/progress'
     | '/rules'
     | '/dev/styles'
     | '/project/$projectId/'
@@ -142,6 +154,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CodebaseRoute: typeof CodebaseRoute
   PrepRoute: typeof PrepRoute
+  ProgressRoute: typeof ProgressRoute
   RulesRoute: typeof RulesRoute
   DevStylesRoute: typeof DevStylesRoute
   ProjectProjectIdIndexRoute: typeof ProjectProjectIdIndexRoute
@@ -157,6 +170,13 @@ declare module '@tanstack/react-router' {
       path: '/rules'
       fullPath: '/rules'
       preLoaderRoute: typeof RulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/progress': {
+      id: '/progress'
+      path: '/progress'
+      fullPath: '/progress'
+      preLoaderRoute: typeof ProgressRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prep': {
@@ -222,6 +242,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CodebaseRoute: CodebaseRoute,
   PrepRoute: PrepRoute,
+  ProgressRoute: ProgressRoute,
   RulesRoute: RulesRoute,
   DevStylesRoute: DevStylesRoute,
   ProjectProjectIdIndexRoute: ProjectProjectIdIndexRoute,

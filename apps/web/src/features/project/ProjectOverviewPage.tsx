@@ -309,6 +309,13 @@ function FooterNav(props: { projectId: string }) {
       >
         RULES →
       </Link>
+      <Link
+        to="/progress"
+        className="border border-primary bg-transparent px-3 py-1 font-mono text-xs font-semibold uppercase tracking-widest text-primary hover:bg-primary-soft"
+        data-testid="project-overview-progress-link"
+      >
+        PROGRESS →
+      </Link>
       <span className="font-mono text-xs text-text-tertiary">project: {props.projectId}</span>
     </div>
   );
