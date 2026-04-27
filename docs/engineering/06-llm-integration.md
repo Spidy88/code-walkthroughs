@@ -190,4 +190,4 @@ export function buildMessages(input: Stage2PromptInput) {
 - **Unit tests for the client** use an in-memory fake that returns canned responses keyed by input hash. See `10-testing.md`.
 - **Degradation tests** are mandatory: for every pipeline in the table above, there is a test that constructs the LLM client in disabled mode and asserts the documented fallback behavior.
 - **Cache-hit-while-disabled tests**: seed the cache DB, construct the client in disabled mode, assert that cached results are served.
-- **No test hits the real Anthropic API.** Integration tests may opt in via `CW_ALLOW_REAL_LLM=1` but are skipped by default in CI.
+- **No test hits the real Anthropic API.** Tests run with `ANTHROPIC_API_KEY` cleared from the env so the client is constructed in disabled mode. To run an LLM-on integration smoke locally, set the key in your shell and re-run; the cache will catch repeat calls.

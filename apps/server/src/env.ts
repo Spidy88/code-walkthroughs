@@ -3,12 +3,13 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 
 const envSchema = z.object({
+  // LLM is on whenever the API key is set; off otherwise. No
+  // separate enable flag — presence of the key is the signal.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   CW_SERVER_PORT: z.coerce.number().int().positive().default(4000),
   CW_WEB_PORT: z.coerce.number().int().positive().default(5173),
   CW_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   CW_DATA_DIR: z.string().optional(),
-  CW_ALLOW_REAL_LLM: z.coerce.boolean().default(false),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 

@@ -62,14 +62,13 @@ All configured via `.env` at the repo root. The server loads it via `dotenv` at 
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | No | unset → LLM disabled | Claude API key |
+| `ANTHROPIC_API_KEY` | No | unset → LLM disabled | Claude API key. Presence of the key is the only on/off signal — all six LLM pipelines (Stage 0 architectural, Stage 2 classification, branch resolution, prep suggestions, path categorisation, fix suggestions) light up automatically when set. |
 | `CW_SERVER_PORT` | No | `4000` | Server HTTP port |
 | `CW_WEB_PORT` | No | `5173` | Vite dev port |
 | `CW_LOG_LEVEL` | No | `info` (dev), `warn` (prod) | Pino log level |
 | `CW_DATA_DIR` | No | `~/.code-walkthrough` | Override storage location |
-| `CW_ALLOW_REAL_LLM` | No | unset | Permits integration tests to hit the real API |
 
-Unset the key at any time to test the LLM-disabled code paths without touching code.
+Unset the key at any time to test the LLM-disabled code paths without touching code. Tests don't read `ANTHROPIC_API_KEY` from the ambient env — vitest workspace clears it.
 
 ## Dev loop
 

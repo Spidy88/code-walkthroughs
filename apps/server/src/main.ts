@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const session = createSession(logger);
 
   const llmClient = createLlmClient({
-    apiKey: env.CW_ALLOW_REAL_LLM ? env.ANTHROPIC_API_KEY : undefined,
+    apiKey: env.ANTHROPIC_API_KEY,
     cacheDbProvider: () => session.getActive()?.dbs.cache ?? null,
     logger,
   });
